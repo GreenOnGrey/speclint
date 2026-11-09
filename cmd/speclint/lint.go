@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -780,8 +781,19 @@ type repoList []string
 func (r *repoList) String() string     { return strings.Join(*r, ",") }
 func (r *repoList) Set(v string) error { *r = append(*r, v); return nil }
 
-// version is set at build time: -X main.version=<tag>.
-var version = "dev"
+// version is set at build time (-X main.version=<tag>); otherwise it is the
+// version of the module, as go run …@v1.0.1 and go install build it.
+var version = ""
+
+func moduleVersion() string {
+	if version != "" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return "dev"
+}
 
 func main() {
 	args := os.Args[1:]
@@ -795,7 +807,7 @@ func main() {
 	case "migrate-arch":
 		runMigrateArch(args)
 	case "version":
-		fmt.Printf("speclint %s, contract %s\n", version, contract.Version)
+		fmt.Printf("speclint %s, contract %s\n", moduleVersion(), contract.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "speclint: unknown command %q; commands: spec, migrate-arch, version\n", cmd)
 		os.Exit(2)

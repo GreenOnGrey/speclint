@@ -42,8 +42,13 @@ var words = map[string]map[Lang][]string{
 	"col_reason":  {RU: {"Обоснование"}, EN: {"Reason"}},
 }
 
-// word is the word the contract writes in lang.
-func word(key string, lang Lang) string { return words[key][lang][0] }
+// word is the word the contract writes in lang; an unknown language writes English.
+func word(key string, lang Lang) string {
+	if ws := words[key][lang]; len(ws) > 0 {
+		return ws[0]
+	}
+	return words[key][EN][0]
+}
 
 // allWords are the words of key in every language.
 func allWords(key string) []string {

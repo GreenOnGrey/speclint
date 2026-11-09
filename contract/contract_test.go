@@ -221,3 +221,9 @@ func TestMigrateArch(t *testing.T) {
 		t.Error("not idempotent")
 	}
 }
+
+func TestUnknownLanguageWritesEnglish(t *testing.T) {
+	if got := NoteLine(Note{Source: "FTR.HMR.DEV-0003", Text: "x"}, Product, ""); got != "*Changed in `FTR.HMR.DEV-0003`: x.*" {
+		t.Errorf("%q", got)
+	}
+}

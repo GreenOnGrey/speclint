@@ -5,7 +5,7 @@ on:
   pull_request:
   push:
     branches: ["[[.Branch]]"]
-permissions: { contents: read }
+permissions: { contents: read[[if eq .Mode "service"]], id-token: write[[end]] }
 
 jobs:
   speclint:
@@ -18,5 +18,4 @@ jobs:
 [[- if eq .Mode "service"]]
           hammurapi-url: "[[.Hammurapi]]"
           service: "[[.Service]]"
-          token: ${{ secrets.HAMMURAPI_SERVICE_TOKEN }}
 [[- end]]

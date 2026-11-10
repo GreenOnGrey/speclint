@@ -1,6 +1,8 @@
 # The action of speclint (FTR.HMR.SPEC-0002 R2): one step that runs the image of the same version as the tag
 # of the action, uses: GreenOnGrey/speclint@v<version>. Errors become annotations on the lines of the pull
-# request, the counts go to the job summary.
+# request, the counts go to the job summary. The mode service presents the OIDC token of the job
+# (permissions: id-token: write); a CI without OIDC sets HAMMURAPI_TOKEN, the installation token, in the env
+# of the step (FTR.HMR.SPEC-0003).
 name: speclint
 description: Check specifications against the document contract of Hammurapi, or the tests of a service against its features
 author: GreenOnGrey
@@ -21,9 +23,6 @@ inputs:
   service:
     description: The key of the service in the catalog of Hammurapi, for service
     default: ""
-  token:
-    description: The token of the service, for service; keep it in a secret
-    default: ""
   errors-only:
     description: Print only new errors and the summary
     default: "true"
@@ -40,7 +39,6 @@ runs:
         IN_URL: ${{ inputs.hammurapi-url }}
         IN_SERVICE: ${{ inputs.service }}
         IN_QUIET: ${{ inputs.errors-only }}
-        HAMMURAPI_SERVICE_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
         # The image has the version of the tag of the action: the version is pinned in one place. Pinned by a
@@ -56,9 +54,10 @@ runs:
         [[ -n $IN_URL ]] && args+=(-hammurapi "$IN_URL")
         [[ -n $IN_SERVICE ]] && args+=(-service "$IN_SERVICE")
         summary_dir=$(dirname "$GITHUB_STEP_SUMMARY")
-        # The token goes in the environment, never in the arguments.
+        # Tokens go in the environment, never in the arguments: the installation token (env HAMMURAPI_TOKEN of the
+        # step), or the request of the OIDC token of the job (permissions: id-token: write), FTR.HMR.SPEC-0003.
         docker run --rm \
           -v "$GITHUB_WORKSPACE:/work" -w /work \
-          -v "$summary_dir:$summary_dir" -e GITHUB_STEP_SUMMARY \
-          -e HAMMURAPI_SERVICE_TOKEN \
+          -v "$summary_dir:$summary_dir" -e GITHUB_STEP_SUMMARY -e GITHUB_ACTIONS \
+          -e HAMMURAPI_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN \
           "$image" "${args[@]}"

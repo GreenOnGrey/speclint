@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// FTR.HMR.SPEC-0002 R6, R7, R11: the files of the check, their version line and the marker.
+// FTR.HMR.SPEC-0002 R6, R7, R11, FTR.HMR.SPEC-0003 qa SVC-02: the files of the check without secrets.
 func TestCIFiles(t *testing.T) {
 	svc := CIParams{Version: "1.2.0", Mode: "service", Hammurapi: "https://hammurapi.example", Service: "booking", Branch: "trunk"}
 	for _, tc := range []struct {
@@ -13,10 +13,11 @@ func TestCIFiles(t *testing.T) {
 		p              CIParams
 		want, not      []string
 	}{
-		{"github", GitHubCIPath, svc, []string{"uses: GreenOnGrey/speclint@v1.2.0", "mode: service", `service: "booking"`, `branches: ["trunk"]`, "${{ secrets.HAMMURAPI_SERVICE_TOKEN }}"}, nil},
-		{"github", GitHubCIPath, CIParams{Version: "1.2.0", Mode: "spec"}, []string{"mode: spec", `branches: ["main"]`}, []string{"token:", "service:"}},
-		{"gitlab", GitLabCIPath, svc, []string{`SPECLINT_VERSION: "1.2.0"`, `HAMMURAPI_SERVICE: "booking"`, "-format gitlab", "codequality: gl-code-quality-report.json"}, nil},
-		{"gitlab", GitLabCIPath, CIParams{Version: "1.2.0", Mode: "spec"}, []string{`SPECLINT_MODE: "spec"`}, []string{"HAMMURAPI_URL"}},
+		{"github", GitHubCIPath, svc, []string{"uses: GreenOnGrey/speclint@v1.2.0", "mode: service", `service: "booking"`, `branches: ["trunk"]`, "id-token: write"}, []string{"secrets", "  token:"}},
+		{"github", GitHubCIPath, CIParams{Version: "1.2.0", Mode: "spec"}, []string{"mode: spec", `branches: ["main"]`}, []string{"token", "service:"}},
+		{"gitlab", GitLabCIPath, svc, []string{`SPECLINT_VERSION: "1.2.0"`, `HAMMURAPI_SERVICE: "booking"`, "-format gitlab", "codequality: gl-code-quality-report.json",
+			`HAMMURAPI_ID_TOKEN: { aud: "https://hammurapi.example" }`}, []string{"SERVICE_TOKEN"}},
+		{"gitlab", GitLabCIPath, CIParams{Version: "1.2.0", Mode: "spec"}, []string{`SPECLINT_MODE: "spec"`}, []string{"HAMMURAPI_URL", "id_tokens"}},
 	} {
 		path, b, err := CIFile(tc.provider, tc.p)
 		if err != nil || path != tc.path {

@@ -13,19 +13,22 @@ documents are both read.
 
 ```yaml
 # a repository of specifications
-- uses: GreenOnGrey/speclint@v1.1.0
+- uses: GreenOnGrey/speclint@v1.2.0
   with: { mode: spec }
 
 # a repository of a service: its tests against the test cases of its features in Hammurapi
-- uses: GreenOnGrey/speclint@v1.1.0
+- uses: GreenOnGrey/speclint@v1.2.0
   with:
     mode: service
     hammurapi-url: https://hammurapi.example
     service: booking
-    token: ${{ secrets.HAMMURAPI_SERVICE_TOKEN }}
+# with permissions: { contents: read, id-token: write } — the job presents its OIDC token, no secret
 ```
 
-Errors become annotations on the lines of the pull request; the counts go to the job summary. Pin the
+Errors become annotations on the lines of the pull request; the counts go to the job summary.
+The mode `service` needs no secret: the job presents its OIDC token. Without OIDC (GitHub Enterprise
+Server without it, other CI), set the installation token of Hammurapi in the environment of the step:
+`env: { HAMMURAPI_TOKEN: ${{ secrets.HAMMURAPI_TOKEN }} }`. Pin the
 action by a version tag: it runs the image of that version. Hammurapi proposes this file to a
 repository itself and keeps its version on the contract of Hammurapi.
 
@@ -33,12 +36,12 @@ repository itself and keeps its version on the contract of Hammurapi.
 
 ```yaml
 include:
-  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v1.1.0/templates/speclint.gitlab-ci.yml
+  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v1.2.0/templates/speclint.gitlab-ci.yml
 variables:
   SPECLINT_MODE: service            # or spec
-  SPECLINT_VERSION: "1.1.0"
+  SPECLINT_VERSION: "1.2.0"
   HAMMURAPI_URL: https://hammurapi.example
-  HAMMURAPI_SERVICE: booking        # HAMMURAPI_SERVICE_TOKEN: a masked CI/CD variable
+  HAMMURAPI_SERVICE: booking        # the job presents its OIDC token (id_tokens), no secret
 ```
 
 Errors go to the Code Quality widget of the merge request. Without access to the internet, copy the
@@ -52,7 +55,7 @@ the [releases](https://github.com/GreenOnGrey/speclint/releases) for Linux, macO
 ```sh
 speclint spec    -root . -baseline speclint-baseline.txt [-errors-only] [-format text|github|gitlab] [-code <repo>]...
 speclint service -hammurapi <url> -service <key> -root . -baseline speclint-baseline.txt [-format …]
-                 # the token in HAMMURAPI_SERVICE_TOKEN
+                 # the token: HAMMURAPI_TOKEN (installation), the OIDC token of GitHub Actions, or HAMMURAPI_ID_TOKEN (GitLab)
 speclint version
 ```
 
@@ -71,8 +74,8 @@ automated test case of a feature in code generation or later without its ID in t
 Verify a release:
 
 ```sh
-cosign verify ghcr.io/greenongrey/speclint:1.1.0 \
-  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v1.1.0 \
+cosign verify ghcr.io/greenongrey/speclint:1.2.0 \
+  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v1.2.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

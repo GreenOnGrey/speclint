@@ -8,11 +8,15 @@ variables:
 [[- if eq .Mode "service"]]
   HAMMURAPI_URL: "[[.Hammurapi]]"
   HAMMURAPI_SERVICE: "[[.Service]]"
-  # HAMMURAPI_SERVICE_TOKEN: a masked CI/CD variable of the project
 [[- end]]
 
 speclint:
   image: { name: "$SPECLINT_IMAGE:$SPECLINT_VERSION", entrypoint: [""] }
+[[- if eq .Mode "service"]]
+  # the OIDC token of the job: Hammurapi checks it, no secret is needed (FTR.HMR.SPEC-0003)
+  id_tokens:
+    HAMMURAPI_ID_TOKEN: { aud: "[[.Hammurapi]]" }
+[[- end]]
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

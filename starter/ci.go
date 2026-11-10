@@ -58,6 +58,8 @@ func CIFile(provider string, p CIParams) (string, []byte, error) {
 	if p.Branch == "" {
 		p.Branch = "main"
 	}
+	// the audience of the OIDC token is the address as speclint normalizes it (FTR.HMR.SPEC-0003 arch A2)
+	p.Hammurapi = strings.TrimRight(p.Hammurapi, "/")
 	// the values go into YAML strings: no quotes, spaces or line breaks
 	for _, v := range []string{p.Hammurapi, p.Service, p.Branch} {
 		if !safeValue.MatchString(v) {

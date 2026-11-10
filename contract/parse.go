@@ -12,7 +12,7 @@ import (
 
 // Version is the version of the contract: the version of this module. A new
 // major version means a document that passed the previous one may fail it.
-const Version = "1.1.0"
+const Version = "1.2.0"
 
 // Area is a gate of a feature.
 type Area string

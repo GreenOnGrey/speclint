@@ -226,3 +226,37 @@ func TestBaselineInsideRoot(t *testing.T) {
 		t.Errorf("a baseline outside the root, got %q", got)
 	}
 }
+
+// FTR.HMR.SPEC-0003 qa CLI-01–CLI-04: the token of the run.
+func TestCIToken(t *testing.T) {
+	var asked string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer req" {
+			w.WriteHeader(401)
+			return
+		}
+		asked = r.URL.Query().Get("audience")
+		_, _ = w.Write([]byte(`{"value":"jwt-of-the-job"}`))
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	envOf := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	// CLI-04: the installation token wins, no OIDC is asked
+	if tok, err := ciToken(ctx, srv.Client(), "https://h.example", envOf(map[string]string{tokenEnv: "hmr_ci_x", ghRequestURL: srv.URL + "?x=1", ghRequestTok: "req"})); err != nil || tok != "hmr_ci_x" || asked != "" {
+		t.Fatalf("CLI-04: %q %v %q", tok, err, asked)
+	}
+	// CLI-03: the OIDC token of GitHub Actions for the audience of Hammurapi
+	if tok, err := ciToken(ctx, srv.Client(), "https://h.example", envOf(map[string]string{ghRequestURL: srv.URL + "?api-version=2.0", ghRequestTok: "req"})); err != nil || tok != "jwt-of-the-job" || asked != "https://h.example" {
+		t.Fatalf("CLI-03: %q %v %q", tok, err, asked)
+	}
+	if tok, err := ciToken(ctx, srv.Client(), "https://h.example", envOf(map[string]string{gitlabIDToken: "jwt-gitlab"})); err != nil || tok != "jwt-gitlab" {
+		t.Fatalf("GitLab: %q %v", tok, err)
+	}
+	// CLI-01, CLI-02: no token, a hint for the CI
+	if _, err := ciToken(ctx, srv.Client(), "https://h.example", envOf(map[string]string{"GITHUB_ACTIONS": "true"})); err == nil || !strings.Contains(err.Error(), `"id-token: write"`) {
+		t.Fatalf("CLI-01: %v", err)
+	}
+	if _, err := ciToken(ctx, srv.Client(), "https://h.example", envOf(map[string]string{"GITLAB_CI": "true"})); err == nil || !strings.Contains(err.Error(), "id_tokens HAMMURAPI_ID_TOKEN") {
+		t.Fatalf("CLI-02: %v", err)
+	}
+}

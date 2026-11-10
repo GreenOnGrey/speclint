@@ -1,19 +1,20 @@
 # The template of speclint for GitLab CI (FTR.HMR.SPEC-0002 R3). Include it,
 #
 #   include:
-#     - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v1.1.0/templates/speclint.gitlab-ci.yml
+#     - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v1.2.0/templates/speclint.gitlab-ci.yml
 #
 # or copy it into the repository (a GitLab without access to the internet), and set the variables:
 #
 #   SPECLINT_MODE            spec (a repository of specifications) or service (a repository of a service)
 #   SPECLINT_VERSION         the version of speclint: the version of the contract of your Hammurapi
 #   SPECLINT_IMAGE           the image, or its mirror in a closed network
-#   HAMMURAPI_URL, HAMMURAPI_SERVICE   for service; HAMMURAPI_SERVICE_TOKEN as a masked CI/CD variable
+#   HAMMURAPI_URL, HAMMURAPI_SERVICE   for service: the job presents its OIDC token (id_tokens below), no secret
+#   HAMMURAPI_TOKEN          only without OIDC: the installation token, a masked CI/CD variable
 #
 # Errors go to the Code Quality widget of the merge request.
 variables:
   SPECLINT_MODE: "spec"
-  SPECLINT_VERSION: "1.1.0"
+  SPECLINT_VERSION: "1.2.0"
   SPECLINT_IMAGE: "ghcr.io/greenongrey/speclint"
   SPECLINT_ROOT: "."
   SPECLINT_BASELINE: "speclint-baseline.txt"
@@ -28,8 +29,16 @@ variables:
     when: always
     reports: { codequality: gl-code-quality-report.json }
 
-speclint:
+speclint:spec:
   extends: .speclint
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $SPECLINT_MODE == "spec" && ($CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH)
+
+# The mode service presents the OIDC token of the job (FTR.HMR.SPEC-0003): its audience is HAMMURAPI_URL
+# without a trailing slash.
+speclint:service:
+  extends: .speclint
+  id_tokens:
+    HAMMURAPI_ID_TOKEN: { aud: "$HAMMURAPI_URL" }
+  rules:
+    - if: $SPECLINT_MODE == "service" && ($CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH)

@@ -28,8 +28,71 @@ const (
 	checkVersionMinor  = "version-minor"
 )
 
-// tokenEnv holds the token of the service: never a flag, so it stays out of the command line.
-const tokenEnv = "HAMMURAPI_SERVICE_TOKEN"
+// The sources of the token (FTR.HMR.SPEC-0003 arch §3.2), never a flag, so it stays out of the command line:
+// the installation token, the OIDC token of GitHub Actions, the OIDC token a GitLab job declares.
+const (
+	tokenEnv      = "HAMMURAPI_TOKEN"
+	gitlabIDToken = "HAMMURAPI_ID_TOKEN"
+	ghRequestURL  = "ACTIONS_ID_TOKEN_REQUEST_URL"
+	ghRequestTok  = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+)
+
+// ciToken finds the token of the run in this order: HAMMURAPI_TOKEN, the OIDC token of the GitHub Actions job
+// for the audience of Hammurapi, HAMMURAPI_ID_TOKEN of a GitLab job. Without one the run fails with a hint for
+// its CI (R5).
+func ciToken(ctx context.Context, client *http.Client, audience string, env func(string) string) (string, error) {
+	if t := env(tokenEnv); t != "" {
+		return t, nil
+	}
+	if u, t := env(ghRequestURL), env(ghRequestTok); u != "" && t != "" {
+		return githubOIDC(ctx, client, u, t, audience)
+	}
+	if t := env(gitlabIDToken); t != "" {
+		return t, nil
+	}
+	switch {
+	case env("GITHUB_ACTIONS") == "true":
+		return "", &runError{"token-invalid", `no OIDC token: allow "id-token: write" in the permissions of the workflow, or set ` + tokenEnv}
+	case env("GITLAB_CI") == "true":
+		return "", &runError{"token-invalid", "no OIDC token: declare id_tokens " + gitlabIDToken + " with aud " + audience + " in the job, or set " + tokenEnv}
+	}
+	return "", &runError{"token-invalid", "no token: set " + tokenEnv + ", or run in GitHub Actions or GitLab CI with an OIDC token"}
+}
+
+// githubOIDC asks the runner of GitHub Actions for the OIDC token of the job, issued for the audience.
+func githubOIDC(ctx context.Context, client *http.Client, requestURL, requestToken, audience string) (string, error) {
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return "", &runError{"token-invalid", "bad " + ghRequestURL + ": " + err.Error()}
+	}
+	q := u.Query()
+	q.Set("audience", audience)
+	u.RawQuery = q.Encode()
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+requestToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", &runError{"token-invalid", "the OIDC token of GitHub Actions: " + err.Error()}
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Value string `json:"value"`
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return "", &runError{"token-invalid", fmt.Sprintf("the runner refused the OIDC token of GitHub Actions: HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
+	}
+	if err := json.Unmarshal(raw, &body); err != nil || body.Value == "" {
+		return "", &runError{"token-invalid", "the runner answered without an OIDC token"}
+	}
+	return body.Value, nil
+}
 
 // serviceCases is the answer of GET /api/v1/ci/services/{key}/test-cases of Hammurapi (tech §3.1).
 type serviceCases struct {
@@ -60,12 +123,9 @@ const requestTimeout = 10 * time.Second
 // fetchCases asks Hammurapi for the features and test cases of the service; it retries a failed connection, a 5xx
 // and a 429, and fails at once on an answer about the token or the service.
 func fetchCases(ctx context.Context, client *http.Client, base, service, token string) (*serviceCases, error) {
-	if token == "" {
-		return nil, &runError{"token-invalid", tokenEnv + " is empty: put the token of the service into the secrets of the repository"}
-	}
-	u, err := url.Parse(strings.TrimRight(base, "/") + "/api/v1/ci/services/" + url.PathEscape(service) + "/test-cases")
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return nil, &runError{"hammurapi-unreachable", fmt.Sprintf("bad -hammurapi %q: an address like https://hammurapi.example", base)}
+	u, err := apiURL(base, "/api/v1/ci/services/"+url.PathEscape(service)+"/test-cases")
+	if err != nil {
+		return nil, err
 	}
 	var last string
 	for attempt := 0; ; attempt++ {
@@ -117,22 +177,25 @@ func fetchOnce(ctx context.Context, client *http.Client, u, token string) (*serv
 	}
 	var e struct {
 		Error struct {
-			Code string `json:"code"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
 		} `json:"error"`
 		Code string `json:"code"`
 	}
 	_ = json.Unmarshal(body, &e)
-	code := e.Error.Code
+	code, msg := e.Error.Code, e.Error.Message
 	if code == "" {
 		code = e.Code
 	}
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized && code == "token_revoked":
-		return nil, false, &runError{"token-revoked", "the token is revoked: issue a new one in the card of the service in Hammurapi and put it into " + tokenEnv}
+		return nil, false, &runError{"token-revoked", "the installation token is revoked: a global administrator issues a new one in the settings of Hammurapi"}
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, false, &runError{"token-invalid", "Hammurapi does not know the token in " + tokenEnv}
+		return nil, false, &runError{"token-invalid", "Hammurapi does not accept the token: " + orDefault(msg, "unknown token")}
+	case resp.StatusCode == http.StatusForbidden && code == "repo_not_in_catalog":
+		return nil, false, &runError{"repo-not-in-catalog", orDefault(msg, "the repository is not the repository of any service in Hammurapi")}
 	case resp.StatusCode == http.StatusForbidden:
-		return nil, false, &runError{"token-invalid", "the token is of another service"}
+		return nil, false, &runError{"token-scope", orDefault(msg, "the token is of another repository")}
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, false, &runError{"service-not-found", "Hammurapi has no such service in its catalog"}
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
@@ -318,6 +381,22 @@ func phaseOf(sc *serviceCases, key string) string {
 	return ""
 }
 
+// apiURL is an address of the API of Hammurapi: -hammurapi without a trailing slash and the path.
+func apiURL(base, path string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimRight(base, "/") + path)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return nil, &runError{"hammurapi-unreachable", fmt.Sprintf("bad -hammurapi %q: an address like https://hammurapi.example", base)}
+	}
+	return u, nil
+}
+
+func orDefault(s, d string) string {
+	if s != "" {
+		return s
+	}
+	return d
+}
+
 // runService checks the tests of a service repository against its features in Hammurapi (R8–R13).
 func runService(args []string) {
 	fl := flag.NewFlagSet("service", flag.ExitOnError)
@@ -331,12 +410,21 @@ func runService(args []string) {
 	_ = fl.Parse(args)
 	out := mustOutput(*format, *root, *quiet)
 	if *base == "" || *service == "" {
-		fail(errors.New("service needs -hammurapi and -service; the token comes in " + tokenEnv))
+		fail(errors.New("service needs -hammurapi and -service; the token is the OIDC token of the CI job or " + tokenEnv))
 	}
 	// in the mode service a test case without a test is an error (R8); only the older minor version warns
 	warnings = map[string]bool{checkVersionMinor: true}
 
-	sc, err := fetchCases(context.Background(), &http.Client{}, *base, *service, os.Getenv(tokenEnv))
+	ctx, client := context.Background(), &http.Client{}
+	if _, err := apiURL(*base, ""); err != nil { // before a token is asked for this address
+		fail(err)
+	}
+	// the audience is the public address of the API of Hammurapi, as -hammurapi names it (FTR.HMR.SPEC-0003 arch A2)
+	token, err := ciToken(ctx, client, strings.TrimRight(*base, "/"), os.Getenv)
+	if err != nil {
+		fail(err)
+	}
+	sc, err := fetchCases(ctx, client, *base, *service, token)
 	if err != nil {
 		fail(err)
 	}

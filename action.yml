@@ -1,0 +1,64 @@
+# The action of speclint (FTR.HMR.SPEC-0002 R2): one step that runs the image of the same version as the tag
+# of the action, uses: GreenOnGrey/speclint@v<version>. Errors become annotations on the lines of the pull
+# request, the counts go to the job summary.
+name: speclint
+description: Check specifications against the document contract of Hammurapi, or the tests of a service against its features
+author: GreenOnGrey
+branding: { icon: check-square, color: purple }
+inputs:
+  mode:
+    description: spec (a repository of specifications) or service (a repository of a service)
+    required: true
+  root:
+    description: The root of the repository to check, relative to the workspace
+    default: "."
+  baseline:
+    description: The file of known errors; it only shrinks
+    default: speclint-baseline.txt
+  hammurapi-url:
+    description: The address of Hammurapi, for service
+    default: ""
+  service:
+    description: The key of the service in the catalog of Hammurapi, for service
+    default: ""
+  token:
+    description: The token of the service, for service; keep it in a secret
+    default: ""
+  errors-only:
+    description: Print only new errors and the summary
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: speclint
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+        IN_MODE: ${{ inputs.mode }}
+        IN_ROOT: ${{ inputs.root }}
+        IN_BASELINE: ${{ inputs.baseline }}
+        IN_URL: ${{ inputs.hammurapi-url }}
+        IN_SERVICE: ${{ inputs.service }}
+        IN_QUIET: ${{ inputs.errors-only }}
+        HAMMURAPI_SERVICE_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        # The image has the version of the tag of the action: the version is pinned in one place. Pinned by a
+        # commit, or used as a local path, the action builds the image from its own sources.
+        if [[ $ACTION_REF =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          image="ghcr.io/greenongrey/speclint:${BASH_REMATCH[1]}"
+        else
+          image="speclint:local"
+          docker build -q -t "$image" "$GITHUB_ACTION_PATH" >/dev/null
+        fi
+        args=("$IN_MODE" -root "$IN_ROOT" -baseline "$IN_BASELINE" -format github)
+        [[ $IN_QUIET == true ]] && args+=(-errors-only)
+        [[ -n $IN_URL ]] && args+=(-hammurapi "$IN_URL")
+        [[ -n $IN_SERVICE ]] && args+=(-service "$IN_SERVICE")
+        summary_dir=$(dirname "$GITHUB_STEP_SUMMARY")
+        # The token goes in the environment, never in the arguments.
+        docker run --rm \
+          -v "$GITHUB_WORKSPACE:/work" -w /work \
+          -v "$summary_dir:$summary_dir" -e GITHUB_STEP_SUMMARY \
+          -e HAMMURAPI_SERVICE_TOKEN \
+          "$image" "${args[@]}"

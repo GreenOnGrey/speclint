@@ -218,13 +218,13 @@ func TestBaseline(t *testing.T) {
 	if len(known) != 1 || !known[issues[0].key()] {
 		t.Fatalf("baseline holds errors only, got %v", known)
 	}
-	if code := printReport(issues, known, true); code != 0 {
+	if code := quietReport(t, issues, known); code != 0 {
 		t.Errorf("known errors and warnings must pass, got %d", code)
 	}
-	if code := printReport(nil, known, true); code != 1 {
+	if code := quietReport(t, nil, known); code != 1 {
 		t.Errorf("a fixed error left in the baseline must fail, got %d", code)
 	}
-	if code := printReport([]issue{{"p", checkRefFeature, "C", "m", 1}}, known, true); code != 1 {
+	if code := quietReport(t, []issue{{"p", checkRefFeature, "C", "m", 1}}, known); code != 1 {
 		t.Errorf("a new error must fail, got %d", code)
 	}
 }

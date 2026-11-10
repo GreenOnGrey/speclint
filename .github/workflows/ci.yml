@@ -17,3 +17,16 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./...
+
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The image builds, and git in it reads a checkout of another user
+        run: |
+          docker build -t speclint:ci .
+          docker run --rm speclint:ci version
+          docker run --rm --user 1001 -v "$PWD:/work" -w /work --entrypoint git speclint:ci grep -q "speclint service" -- README.md
+      # The action from this commit: not pinned by a version tag, it builds its image from its sources.
+      - uses: ./
+        with: { mode: spec }

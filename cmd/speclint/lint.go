@@ -5,10 +5,10 @@
 //
 // Errors fail the run unless they are listed in the baseline. Warnings never do.
 //
-//	cd tools/speclint
-//	go run . -root ../.. -baseline baseline.txt                 # as in CI
-//	go run . -root ../.. -baseline baseline.txt -write-baseline # accept the current errors
-//	go run . -root ../.. -code ../../../nabu-core               # also look for test case IDs in a repo
+//	speclint spec -root . -baseline speclint-baseline.txt                 # as in CI
+//	speclint spec -root . -baseline speclint-baseline.txt -write-baseline # accept the current errors
+//	speclint spec -root . -code ../nabu-core                              # also look for test case IDs in a repo
+//	speclint service -hammurapi https://h.example -service booking        # the tests of a service (service.go)
 //
 // With -code, an ID that is a test case of several features counts for a feature
 // only in a file that names its key (rules/qa/template.md).
@@ -19,7 +19,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
@@ -602,48 +601,36 @@ type codeRefs struct {
 
 var codeIDPattern = regexp.MustCompile(codeIDRe)
 
-// codeIDs collects what looks like a test case ID in the tracked files of repos,
-// and with it the feature keys named in the same file.
+// codeIDs collects what looks like a test case ID in the tracked files of repos, and with it the feature keys
+// named in the same file: the search of the mode service (scanRepo).
 func codeIDs(repos []string) (*codeRefs, error) {
 	refs := &codeRefs{ids: map[string]bool{}, qualified: map[string]bool{}}
 	for _, r := range repos {
-		out, err := exec.Command("git", "-C", r, "grep", "-E", codeIDRe).Output()
+		hits, err := scanRepo(r, "")
 		if err != nil {
-			if e, ok := err.(*exec.ExitError); ok && e.ExitCode() == 1 {
-				continue // no matches
-			}
-			return nil, fmt.Errorf("%s: %w", r, err)
+			return nil, err
 		}
-		files := map[string][]string{}
-		for _, l := range strings.Split(string(out), "\n") {
-			if file, text, ok := strings.Cut(l, ":"); ok {
-				files[file] = append(files[file], text)
-			}
-		}
-		for _, lines := range files {
-			refs.addFile(lines)
-		}
+		refs.add(hits)
 	}
 	return refs, nil
 }
 
-// addFile records the IDs of the matching lines of one file and the feature keys
-// named in them (a key has the shape of an ID, so its line always matches).
+func (c *codeRefs) add(r *repoHits) {
+	for _, h := range r.hits {
+		c.ids[h.id] = true
+		for k := range r.files[h.file] {
+			c.qualified[k+" "+h.id] = true
+		}
+	}
+}
+
+// addFile records the IDs of the lines of one file and the feature keys named in them.
 func (c *codeRefs) addFile(lines []string) {
-	keys := map[string]bool{}
-	var ids []string
-	for _, l := range lines {
-		for _, k := range featureKeyRe.FindAllString(l, -1) {
-			keys[k] = true
-		}
-		ids = append(ids, codeIDPattern.FindAllString(l, -1)...)
+	var b strings.Builder
+	for i, l := range lines {
+		fmt.Fprintf(&b, "f:%d:%s\n", i+1, l)
 	}
-	for _, id := range ids {
-		c.ids[id] = true
-		for k := range keys {
-			c.qualified[k+" "+id] = true
-		}
-	}
+	c.add(parseGrep(b.String()))
 }
 
 // checkCode reports, per feature, automated test cases whose ID is in no repo.
@@ -804,12 +791,14 @@ func main() {
 	switch cmd {
 	case "spec":
 		runSpec(args)
+	case "service":
+		runService(args)
 	case "migrate-arch":
 		runMigrateArch(args)
 	case "version":
 		fmt.Printf("speclint %s, contract %s\n", moduleVersion(), contract.Version)
 	default:
-		fmt.Fprintf(os.Stderr, "speclint: unknown command %q; commands: spec, migrate-arch, version\n", cmd)
+		fmt.Fprintf(os.Stderr, "speclint: unknown command %q; commands: spec, service, migrate-arch, version\n", cmd)
 		os.Exit(2)
 	}
 }
@@ -845,83 +834,51 @@ func runMigrateArch(args []string) {
 }
 
 func runSpec(args []string) {
-	flag := flag.NewFlagSet("spec", flag.ExitOnError)
-	root := flag.String("root", ".", "root of the specifications repository")
-	baseline := flag.String("baseline", "", "file of known errors, which do not fail the run")
-	update := flag.Bool("write-baseline", false, "write the current errors to the baseline and exit")
-	quiet := flag.Bool("errors-only", false, "print only new errors and the summary")
+	fl := flag.NewFlagSet("spec", flag.ExitOnError)
+	root := fl.String("root", ".", "root of the specifications repository")
+	baseline := fl.String("baseline", "", "file of known errors, which do not fail the run")
+	update := fl.Bool("write-baseline", false, "write the current errors to the baseline and exit")
+	quiet := fl.Bool("errors-only", false, "print only new errors and the summary")
+	format := fl.String("format", "text", "output: text, github (annotations and a job summary) or gitlab (and a Code Quality report)")
+	// The inputs of the GitHub action are the same for both modes: spec takes and ignores these.
+	_ = fl.String("hammurapi", "", "ignored by spec")
+	_ = fl.String("service", "", "ignored by spec")
 	var repos repoList
-	flag.Var(&repos, "code", "git repository to look for test case IDs in; repeatable")
-	_ = flag.Parse(args)
+	fl.Var(&repos, "code", "git repository to look for test case IDs in; repeatable")
+	_ = fl.Parse(args)
+	out := mustOutput(*format, *root, *quiet)
 
 	issues, err := lint(*root, repos)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "speclint:", err)
-		os.Exit(2)
+		fail(err)
 	}
-	if *update {
-		if err := writeBaseline(*baseline, issues); err != nil {
-			fmt.Fprintln(os.Stderr, "speclint:", err)
-			os.Exit(2)
+	finish(issues, *baseline, *update, out)
+}
+
+// finish writes the baseline, or compares the issues with it and exits with the code of the run.
+func finish(issues []issue, baseline string, update bool, out output) {
+	if update {
+		if err := writeBaseline(baseline, issues); err != nil {
+			fail(err)
 		}
 		return
 	}
-	known, err := readBaseline(*baseline)
+	known, err := readBaseline(baseline)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "speclint:", err)
-		os.Exit(2)
+		fail(err)
 	}
-	if code := printReport(issues, known, *quiet); code != 0 {
-		os.Exit(code)
+	out.baseline = baseline
+	code, err := out.write(issues, known)
+	if err != nil {
+		fail(err)
 	}
+	os.Exit(code)
 }
 
-// printReport prints the issues and a summary and returns the exit code.
-func printReport(issues []issue, known map[string]bool, quiet bool) int {
-	counts := map[string]int{}
-	current := map[string]bool{}
-	newErrors, knownErrors := 0, 0
-	for _, i := range issues {
-		counts[i.check]++
-		sev := i.severity()
-		if sev == "error" {
-			current[i.key()] = true
-			if known[i.key()] {
-				sev = "known"
-				knownErrors++
-			} else {
-				newErrors++
-			}
-		}
-		if !quiet || sev == "error" {
-			fmt.Printf("%s:%d: %s [%s] %s\n", i.path, i.line, sev, i.check, i.msg)
-		}
-	}
-	var checks []string
-	for c := range counts {
-		checks = append(checks, c)
-	}
-	sort.Strings(checks)
-	fmt.Println()
-	for _, c := range checks {
-		fmt.Printf("%6d  %s\n", counts[c], c)
-	}
-	var fixed []string
-	for k := range known {
-		if !current[k] {
-			fixed = append(fixed, k)
-		}
-	}
-	sort.Strings(fixed)
-	for _, k := range fixed {
-		fmt.Printf("fixed, remove from the baseline: %s\n", k)
-	}
-	stale := len(fixed)
-	fmt.Printf("new errors: %d, known errors: %d, baseline lines to remove: %d\n", newErrors, knownErrors, stale)
-	if newErrors > 0 || stale > 0 {
-		return 1
-	}
-	return 0
+// fail stops a run that could not check (exit code 2, FTR.HMR.SPEC-0002 tech §2).
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, "speclint:", err)
+	os.Exit(2)
 }
 
 // decRefRe is a decision named in text: FTR.X.Y-0001-A3, or `FTR.X.Y-0001` A3, A5.

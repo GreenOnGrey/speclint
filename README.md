@@ -5,19 +5,21 @@ specification repository.
 
 Hammurapi reads a few elements in every specification: the line «Depends on», requirements `R<n>`
 with acceptance criteria, architecture decisions `A<n>`, the section «Changes to other features» and
-the notes «Changed in». This module is that contract. Hammurapi's indexer and `speclint` use the same
+the notes «Changed in», the services of arch with their C4 diagram in mermaid, the services of tech
+and the contract files next to it (`<service>.openapi.yaml`, `<service>.proto`). This module is that contract. Hammurapi's indexer and `speclint` use the same
 code, so a pull request is checked exactly the way Hammurapi will read it. Russian and English
 documents are both read.
 
 ## GitHub Actions
 
 ```yaml
-# a repository of specifications
-- uses: GreenOnGrey/speclint@v1.2.0
-  with: { mode: spec }
+# a repository of specifications; with hammurapi-url (and id-token: write) the keys of services in arch
+# are checked against the catalog of Hammurapi
+- uses: GreenOnGrey/speclint@v2.0.0
+  with: { mode: spec, hammurapi-url: https://hammurapi.example }
 
 # a repository of a service: its tests against the test cases of its features in Hammurapi
-- uses: GreenOnGrey/speclint@v1.2.0
+- uses: GreenOnGrey/speclint@v2.0.0
   with:
     mode: service
     hammurapi-url: https://hammurapi.example
@@ -36,10 +38,10 @@ repository itself and keeps its version on the contract of Hammurapi.
 
 ```yaml
 include:
-  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v1.2.0/templates/speclint.gitlab-ci.yml
+  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.0.0/templates/speclint.gitlab-ci.yml
 variables:
   SPECLINT_MODE: service            # or spec
-  SPECLINT_VERSION: "1.2.0"
+  SPECLINT_VERSION: "2.0.0"
   HAMMURAPI_URL: https://hammurapi.example
   HAMMURAPI_SERVICE: booking        # the job presents its OIDC token (id_tokens), no secret
 ```
@@ -53,7 +55,7 @@ The image `ghcr.io/greenongrey/speclint:<version>` (linux/amd64, linux/arm64) an
 the [releases](https://github.com/GreenOnGrey/speclint/releases) for Linux, macOS and Windows:
 
 ```sh
-speclint spec    -root . -baseline speclint-baseline.txt [-errors-only] [-format text|github|gitlab] [-code <repo>]...
+speclint spec    -root . -baseline speclint-baseline.txt [-errors-only] [-format text|github|gitlab] [-code <repo>]... [-hammurapi <url>]
 speclint service -hammurapi <url> -service <key> -root . -baseline speclint-baseline.txt [-format …]
                  # the token: HAMMURAPI_TOKEN (installation), the OIDC token of GitHub Actions, or HAMMURAPI_ID_TOKEN (GitLab)
 speclint version
@@ -62,6 +64,8 @@ speclint version
 - `-baseline` — known errors that do not fail the run; the file only shrinks: a fixed error left in it fails the run.
 - `-write-baseline` — accept the current errors.
 - `-errors-only` — print only new errors and the summary. No flag turns a check off.
+- `-hammurapi <url>` in `spec` — check the keys of services of arch against the catalog of Hammurapi; without a token
+  of CI the check is skipped with a note.
 - `-code <repo>` — also look for the IDs of test cases in a code repository (repeatable).
 - Exit codes: `0` no new errors, `1` new errors or stale lines of the baseline, `2` the run could not check
   (flags, network, token, version).
@@ -74,8 +78,8 @@ automated test case of a feature in code generation or later without its ID in t
 Verify a release:
 
 ```sh
-cosign verify ghcr.io/greenongrey/speclint:1.2.0 \
-  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v1.2.0 \
+cosign verify ghcr.io/greenongrey/speclint:2.0.0 \
+  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v2.0.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -84,11 +88,17 @@ cosign verify ghcr.io/greenongrey/speclint:1.2.0 \
 ## Library
 
 ```go
-import "github.com/GreenOnGrey/speclint/contract"
+import "github.com/GreenOnGrey/speclint/v2/contract"
 
 d := contract.Parse(doc, contract.Product) // DependsOn, Items, Changes, Notes, Violations
 v := contract.CheckTemplate(contract.Arch, contract.FileTemplate, tpl)
+a := contract.Parse(arch, contract.Arch)    // also Services and C4
+f := contract.CheckArch(a)                  // arch-services-missing, c4-missing, c4-invalid, c4-service-missing
 ```
+
+Version 2 adds to arch the table of services by the keys of the catalog and the section «Схема C4» / «C4 diagram»
+(FTR.HMR.SPEC-0004): an arch of version 1 fails `c4-missing`; run `speclint spec -write-baseline` once to accept the
+existing documents.
 
 `starter.Files(contract.EN)` returns the starter rules templates; `starter.CIFile` the file of the
 check that Hammurapi proposes to a repository, `starter.CIVersion` and `starter.SetCIVersion` read and

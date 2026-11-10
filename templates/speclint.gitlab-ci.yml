@@ -1,20 +1,22 @@
 # The template of speclint for GitLab CI (FTR.HMR.SPEC-0002 R3). Include it,
 #
 #   include:
-#     - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v1.2.0/templates/speclint.gitlab-ci.yml
+#     - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.0.0/templates/speclint.gitlab-ci.yml
 #
 # or copy it into the repository (a GitLab without access to the internet), and set the variables:
 #
 #   SPECLINT_MODE            spec (a repository of specifications) or service (a repository of a service)
 #   SPECLINT_VERSION         the version of speclint: the version of the contract of your Hammurapi
 #   SPECLINT_IMAGE           the image, or its mirror in a closed network
-#   HAMMURAPI_URL, HAMMURAPI_SERVICE   for service: the job presents its OIDC token (id_tokens below), no secret
+#   HAMMURAPI_URL, HAMMURAPI_SERVICE   for service: the job presents its OIDC token (id_tokens below), no secret;
+#                            HAMMURAPI_URL for spec checks the keys of services against the catalog: add
+#                            id_tokens HAMMURAPI_ID_TOKEN with aud $HAMMURAPI_URL to speclint:spec, or set HAMMURAPI_TOKEN
 #   HAMMURAPI_TOKEN          only without OIDC: the installation token, a masked CI/CD variable
 #
 # Errors go to the Code Quality widget of the merge request.
 variables:
   SPECLINT_MODE: "spec"
-  SPECLINT_VERSION: "1.2.0"
+  SPECLINT_VERSION: "2.0.0"
   SPECLINT_IMAGE: "ghcr.io/greenongrey/speclint"
   SPECLINT_ROOT: "."
   SPECLINT_BASELINE: "speclint-baseline.txt"

@@ -6,8 +6,25 @@ The gate is needed if service boundaries, contracts between services, data stora
 
 ## Affected services and contracts
 
+The first column is the key of a service of the Hammurapi catalog (`booking`), one row per service: by these keys Hammurapi links the feature to the services, code generation and the check of tests in CI. A key not in the catalog fails the submission. External systems not in the catalog go only to the diagram.
+
 | Service | Role in the feature | Changing contracts (API, events) |
 |---|---|---|
+
+## C4 diagram
+
+A diagram of the level of containers in mermaid. Every service of the table above is a `Container` (or `ContainerDb`, `ContainerQueue`) whose identifier is its key with `-` and `.` written as `_` (`hammurapi-core` → `hammurapi_core`). People are `Person`, external systems `System_Ext`, relations `Rel(from, to, "what", "protocol")`.
+
+```mermaid
+C4Container
+  Person(client, "Client")
+  System_Boundary(product, "<system>") {
+    Container(booking, "<service>", "<technology>", "<responsibility>")
+  }
+  System_Ext(pay, "<external system>")
+  Rel(client, booking, "<what it does>", "HTTPS")
+  Rel(booking, pay, "<what it does>", "HTTPS")
+```
 
 ## Components
 

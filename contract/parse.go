@@ -12,7 +12,7 @@ import (
 
 // Version is the version of the contract: the version of this module. A new
 // major version means a document that passed the previous one may fail it.
-const Version = "1.2.0"
+const Version = "2.0.0"
 
 // Area is a gate of a feature.
 type Area string
@@ -95,6 +95,12 @@ type Document struct {
 	Notes      []Note
 	Parent     string
 	Violations []Violation
+	// FTR.HMR.SPEC-0004: the services of arch (the table of affected services) and of tech (the changes by
+	// service), the line of their section (0 if none), whether the section has the table, and the C4 diagram of arch.
+	Services     []Service
+	ServicesLine int
+	HasServices  bool
+	C4           *C4Block
 }
 
 var (
@@ -138,6 +144,10 @@ func Parse(doc string, area Area) Document {
 		d.Items = items
 		d.Violations = append(d.Violations, viol...)
 		d.Notes = append(parseNotes(ls), parseArchNotes(ls)...)
+		d.Services, d.ServicesLine, d.HasServices = parseServices(ls, "services", true)
+		d.C4 = parseC4Section(ls)
+	case Tech:
+		d.Services, d.ServicesLine, d.HasServices = parseServices(ls, "tech_services", false)
 	}
 	if area == Product || area == Arch {
 		ch, viol := parseChanges(ls)

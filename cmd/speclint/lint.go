@@ -16,8 +16,11 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,7 +29,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/GreenOnGrey/speclint/contract"
+	"github.com/GreenOnGrey/speclint/v2/contract"
 )
 
 // Checks. Errors are broken links; warnings are debts that need a decision.
@@ -48,6 +51,8 @@ const (
 	checkRefDecision   = "ref-unknown-decision"
 	checkWrongKind     = "changes-wrong-kind"
 	checkTemplate      = "template-contract"
+	// FTR.HMR.SPEC-0004: the services and the C4 diagram of arch, the services and the contract files of tech;
+	// the names are those of the contract (contract.Check*)
 )
 
 var warnings = map[string]bool{checkNotInCode: true}
@@ -92,6 +97,7 @@ type requirement struct {
 
 type feature struct {
 	key     string
+	dir     string // relative to the root: specs/<domain>/<group>/<key>
 	domain  string
 	parent  string
 	docs    map[string]*doc
@@ -99,6 +105,7 @@ type feature struct {
 	changes []change
 	// arch: its decisions A<n>, the rows of its section of changes and its notes
 	decisions   map[string]bool
+	archDoc     *contract.Document // parsed once by parseChanges
 	archChanges []change
 	archNotes   []contract.Note
 }
@@ -172,7 +179,7 @@ func load(root string) (map[string]*feature, error) {
 		}
 		f := features[parts[3]]
 		if f == nil {
-			f = &feature{key: parts[3], domain: m[1], docs: map[string]*doc{}, reqs: map[string]*requirement{}}
+			f = &feature{key: parts[3], dir: strings.Join(parts[:4], "/"), domain: m[1], docs: map[string]*doc{}, reqs: map[string]*requirement{}}
 			features[parts[3]] = f
 		}
 		f.docs[parts[4]] = d
@@ -442,6 +449,7 @@ func parseChanges(f *feature, report func(issue)) {
 		return
 	}
 	a := contract.Parse(d.raw, contract.Arch)
+	f.archDoc = &a
 	f.decisions = map[string]bool{}
 	for _, it := range a.Items {
 		f.decisions[it.ID] = true
@@ -666,7 +674,9 @@ func checkCode(f *feature, cases []testCase, refs *codeRefs, shared map[string]b
 	}
 }
 
-func lint(root string, repos []string) ([]issue, error) {
+// lint checks the repository at root; repos are searched for test case IDs, and catalog, when it is not nil, holds
+// the keys of the services of Hammurapi.
+func lint(root string, repos, catalog []string) ([]issue, error) {
 	fs, err := load(root)
 	if err != nil {
 		return nil, err
@@ -705,6 +715,9 @@ func lint(root string, repos []string) ([]issue, error) {
 		checkBacklinks(fs, f, domains, report)
 		checkNotes(fs, f, report)
 		checkArch(fs, f, domains, report)
+		if err := checkServices(root, f, catalog, report); err != nil {
+			return nil, err
+		}
 	}
 	checkTemplates(root, report)
 	shared := map[string]bool{}
@@ -840,15 +853,22 @@ func runSpec(args []string) {
 	update := fl.Bool("write-baseline", false, "write the current errors to the baseline and exit")
 	quiet := fl.Bool("errors-only", false, "print only new errors and the summary")
 	format := fl.String("format", "text", "output: text, github (annotations and a job summary) or gitlab (and a Code Quality report)")
-	// The inputs of the GitHub action are the same for both modes: spec takes and ignores these.
-	_ = fl.String("hammurapi", "", "ignored by spec")
+	base := fl.String("hammurapi", "", "address of Hammurapi: the keys of services in arch are checked against its catalog")
+	// The inputs of the GitHub action are the same for both modes: spec takes and ignores -service.
 	_ = fl.String("service", "", "ignored by spec")
 	var repos repoList
 	fl.Var(&repos, "code", "git repository to look for test case IDs in; repeatable")
 	_ = fl.Parse(args)
 	out := mustOutput(*format, *root, *quiet)
 
-	issues, err := lint(*root, repos)
+	var catalog []string
+	if *base != "" {
+		var err error
+		if catalog, err = specCatalog(*base); err != nil {
+			fail(err)
+		}
+	}
+	issues, err := lint(*root, repos, catalog)
 	if err != nil {
 		fail(err)
 	}
@@ -974,4 +994,76 @@ func checkTemplates(root string, report func(issue)) {
 			report(issue{rel, checkTemplate, v.Element, v.Message, max(v.Line, 1)})
 		}
 	}
+}
+
+// checkServices checks the services and the C4 diagram of arch, the services of tech and the contract files next to
+// tech (FTR.HMR.SPEC-0004 R1–R4, R6).
+func checkServices(root string, f *feature, catalog []string, report func(issue)) error {
+	add := func(path string, fs []contract.Finding) {
+		for _, x := range fs {
+			report(issue{path, x.Check, x.Subject, x.Message, max(x.Line, 1)})
+		}
+	}
+	var tech *contract.Document
+	arch := f.archDoc
+	if d := f.docs["arch"]; d != nil && arch != nil {
+		add(d.path, contract.CheckArch(*arch))
+		// an arch of 1.x does not name the services by keys (R9): its free text is not checked against the catalog
+		if catalog != nil && arch.NamesServices() {
+			add(d.path, contract.CheckCatalog(*arch, catalog))
+		}
+	}
+	if d := f.docs["tech"]; d != nil {
+		t := contract.Parse(d.raw, contract.Tech)
+		tech = &t
+		add(d.path, contract.CheckTech(t, arch))
+	}
+	entries, err := os.ReadDir(filepath.Join(root, f.dir, "tech"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	services := contract.FeatureServices(arch, tech)
+	for _, e := range entries {
+		if _, _, ok := contract.ContractFile(e.Name()); !ok || e.IsDir() {
+			continue
+		}
+		rel := f.dir + "/tech/" + e.Name()
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			return err
+		}
+		add(rel, contract.CheckContractFile(rel, b, services))
+	}
+	return nil
+}
+
+// specCatalog reads the catalog of services of Hammurapi for spec -hammurapi (FTR.HMR.SPEC-0004 R2). When the catalog
+// is not available — no token of CI, Hammurapi refuses or is unreachable — the check of the catalog is skipped with a
+// note and the rest of the run goes on: Hammurapi checks the keys at the submission anyway.
+func specCatalog(base string) ([]string, error) {
+	ctx, client := context.Background(), &http.Client{}
+	if _, err := apiURL(base, ""); err != nil {
+		return nil, err
+	}
+	skip := func(err error) ([]string, error) {
+		msg := err.Error()
+		var re *runError
+		if errors.As(err, &re) {
+			msg = re.msg
+		}
+		fmt.Fprintln(os.Stderr, "speclint: the keys of services are not checked against the catalog:", msg)
+		return nil, nil
+	}
+	token, err := ciToken(ctx, client, strings.TrimRight(base, "/"), os.Getenv)
+	if err != nil {
+		return skip(err)
+	}
+	catalog, err := fetchCatalog(ctx, client, base, token)
+	if err != nil {
+		return skip(err)
+	}
+	return catalog, nil
 }

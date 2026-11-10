@@ -1,6 +1,7 @@
 # The action of speclint (FTR.HMR.SPEC-0002 R2): one step that runs the image of the same version as the tag
 # of the action, uses: GreenOnGrey/speclint@v<version>. Errors become annotations on the lines of the pull
-# request, the counts go to the job summary. The mode service presents the OIDC token of the job
+# request, the counts go to the job summary. With hammurapi-url (service, and spec for the catalog of services,
+# FTR.HMR.SPEC-0004 R2) the action presents the OIDC token of the job
 # (permissions: id-token: write); a CI without OIDC sets HAMMURAPI_TOKEN, the installation token, in the env
 # of the step (FTR.HMR.SPEC-0003).
 name: speclint
@@ -18,7 +19,7 @@ inputs:
     description: The file of known errors; it only shrinks
     default: speclint-baseline.txt
   hammurapi-url:
-    description: The address of Hammurapi, for service
+    description: The address of Hammurapi; for service, and for spec to check the keys of services against its catalog (needs id-token write)
     default: ""
   service:
     description: The key of the service in the catalog of Hammurapi, for service

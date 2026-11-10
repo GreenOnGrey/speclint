@@ -5,7 +5,7 @@ on:
   pull_request:
   push:
     branches: ["[[.Branch]]"]
-permissions: { contents: read[[if eq .Mode "service"]], id-token: write[[end]] }
+permissions: { contents: read[[if .Hammurapi]], id-token: write[[end]] }
 
 jobs:
   speclint:
@@ -15,7 +15,9 @@ jobs:
       - uses: GreenOnGrey/speclint@v[[.Version]]
         with:
           mode: [[.Mode]]
-[[- if eq .Mode "service"]]
+[[- if .Hammurapi]]
           hammurapi-url: "[[.Hammurapi]]"
+[[- end]]
+[[- if eq .Mode "service"]]
           service: "[[.Service]]"
 [[- end]]

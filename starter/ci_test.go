@@ -18,6 +18,9 @@ func TestCIFiles(t *testing.T) {
 		{"gitlab", GitLabCIPath, svc, []string{`SPECLINT_VERSION: "1.2.0"`, `HAMMURAPI_SERVICE: "booking"`, "-format gitlab", "codequality: gl-code-quality-report.json",
 			`HAMMURAPI_ID_TOKEN: { aud: "https://hammurapi.example" }`}, []string{"SERVICE_TOKEN"}},
 		{"gitlab", GitLabCIPath, CIParams{Version: "1.2.0", Mode: "spec"}, []string{`SPECLINT_MODE: "spec"`}, []string{"HAMMURAPI_URL", "id_tokens"}},
+		// FTR.HMR.SPEC-0004 R2: a repository of specifications checks the keys of services against the catalog
+		{"github", GitHubCIPath, CIParams{Version: "2.0.0", Mode: "spec", Hammurapi: "https://hammurapi.example/"}, []string{"mode: spec", `hammurapi-url: "https://hammurapi.example"`, "id-token: write"}, []string{"service:", "secrets"}},
+		{"gitlab", GitLabCIPath, CIParams{Version: "2.0.0", Mode: "spec", Hammurapi: "https://hammurapi.example"}, []string{`HAMMURAPI_URL: "https://hammurapi.example"`, `-format gitlab -hammurapi "$HAMMURAPI_URL"`, "HAMMURAPI_ID_TOKEN"}, []string{"HAMMURAPI_SERVICE"}},
 	} {
 		path, b, err := CIFile(tc.provider, tc.p)
 		if err != nil || path != tc.path {
@@ -37,7 +40,7 @@ func TestCIFiles(t *testing.T) {
 				t.Errorf("%s %s: %q in\n%s", tc.provider, tc.p.Mode, w, s)
 			}
 		}
-		if v, ok := CIVersion(b); !ok || v != "1.2.0" {
+		if v, ok := CIVersion(b); !ok || v != tc.p.Version {
 			t.Errorf("%s: version %q %v", tc.provider, v, ok)
 		}
 		bumped, err := SetCIVersion(b, "1.3.0")

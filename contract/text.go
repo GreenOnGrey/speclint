@@ -40,6 +40,11 @@ var words = map[string]map[Lang][]string{
 	"col_dec":     {RU: {"Архитектурное решение"}, EN: {"Decision"}},
 	"col_what":    {RU: {"Что изменилось"}, EN: {"What changed"}},
 	"col_reason":  {RU: {"Обоснование"}, EN: {"Reason"}},
+	// FTR.HMR.SPEC-0004
+	"services":      {RU: {"Затрагиваемые сервисы и контракты", "Затрагиваемые сервисы"}, EN: {"Affected services and contracts", "Affected services"}},
+	"c4":            {RU: {"Схема C4"}, EN: {"C4 diagram"}},
+	"tech_services": {RU: {"Изменения по сервисам"}, EN: {"Changes by service"}},
+	"col_service":   {RU: {"Сервис"}, EN: {"Service"}},
 }
 
 // word is the word the contract writes in lang; an unknown language writes English.
@@ -246,6 +251,7 @@ var colStems = map[string][]string{
 	"col_req":     {"требован", "requirement"},
 	"col_dec":     {"архитектурн", "decision"},
 	"col_what":    {"что измен", "what changed", "изменил", "change"},
+	"col_service": {"сервис", "service"},
 }
 
 // col is the index of the first header cell containing a stem of one of keys,

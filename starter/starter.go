@@ -8,7 +8,7 @@ import (
 	"io/fs"
 	"path"
 
-	"github.com/GreenOnGrey/speclint/contract"
+	"github.com/GreenOnGrey/speclint/v2/contract"
 )
 
 //go:embed ru en

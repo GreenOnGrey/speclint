@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +22,7 @@ func write(t *testing.T, root, rel, content string) {
 
 func keys(t *testing.T, root string) string {
 	t.Helper()
-	issues, err := lint(root, nil)
+	issues, err := lint(root, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +116,7 @@ func TestFixResolvesRequirementsOfParent(t *testing.T) {
 func TestReferences(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, a+"product/spec.md", validProduct)
-	write(t, root, b+"arch/spec.md", "`FTR.HMR.CMN-0001` R1, R3; FTR.HMR.CMN-0001-R4; `FTR.HMR.CMN-0404`; FTR.NAB.CMN-0001\n")
+	write(t, root, b+"tech/spec.md", "`FTR.HMR.CMN-0001` R1, R3; FTR.HMR.CMN-0001-R4; `FTR.HMR.CMN-0404`; FTR.NAB.CMN-0001\n")
 	want := "ref-unknown-req FTR.HMR.CMN-0001 R3\nref-unknown-req FTR.HMR.CMN-0001 R4\nref-unknown-feature FTR.HMR.CMN-0404"
 	if got := keys(t, root); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -262,5 +264,72 @@ func TestSharedCodeIDs(t *testing.T) {
 	refs.addFile([]string{`it("RQ-02: in a file without a key", () => {})`})
 	if got := check("FTR.HMR.DISC-0001", testCase{id: "RQ-02", level: "E"}); len(got) != 1 {
 		t.Errorf("a shared ID without a feature key covers no feature, got %+v", got)
+	}
+}
+
+const archC4 = "# A\n\n## Затрагиваемые сервисы и контракты\n\n| Сервис | Роль |\n|---|---|\n| `booking` | x |\n\n" +
+	"## Схема C4\n\n```mermaid\nC4Container\n  Container(booking, \"Бронь\")\n```\n"
+
+// FTR.HMR.SPEC-0004: the services and the diagram of arch, the services of tech, the contract files (SVC-06, FILE-02,
+// FILE-04), a fix without them, and the catalog of Hammurapi (SVC-04).
+func TestServicesAndContracts(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, a+"arch/spec.md", archC4)
+	write(t, root, a+"tech/spec.md", "# T\n\n## Изменения по сервисам\n\n| Сервис | Требования |\n|---|---|\n| `booking` | R1 |\n| `pricing` | R2 |\n")
+	write(t, root, a+"tech/booking.openapi.yaml", "openapi: 3.0.3\npaths: {}\n")
+	write(t, root, a+"tech/billing.proto", "syntax = \"proto3\";\nmessage A {}\n")
+	write(t, root, a+"tech/booking.proto", "message A {}\n")
+	write(t, root, b+"arch/spec.md", "---\nparent: FTR.HMR.CMN-0001\n---\n\n# Fix\n")
+	want := "contract-file-service " + a + "tech/billing.proto\ncontract-file-invalid " + a + "tech/booking.proto\ntech-service-not-in-arch pricing"
+	if got := keys(t, root); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	// TPL-02: an arch of the contract 1.x fails, and the baseline keeps it from failing the run
+	write(t, root, b+"arch/spec.md", "# Old\n\n## Затрагиваемые сервисы и контракты\n\nСвободный текст.\n")
+	if got := keys(t, root); !strings.Contains(got, "c4-missing c4\narch-services-missing services") {
+		t.Errorf("TPL-02 old arch:\n%s", got)
+	}
+
+	// SVC-04: the keys of arch against the catalog of Hammurapi
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/ci/services" || r.Header.Get("Authorization") != "Bearer hmr_ci_x" {
+			http.Error(w, "{}", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"services":["bookings","pricing"]}`))
+	}))
+	defer srv.Close()
+	t.Setenv("HAMMURAPI_TOKEN", "hmr_ci_x")
+	catalog, err := specCatalog(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := lint(root, nil, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, i := range issues {
+		found = found || i.check == "arch-service-unknown" && i.subject == "booking" && strings.Contains(i.msg, "bookings?")
+	}
+	if !found {
+		t.Errorf("SVC-04 %+v", issues)
+	}
+
+	// Hammurapi refuses: the catalog is skipped, not a failure
+	t.Setenv("HAMMURAPI_TOKEN", "hmr_ci_other")
+	if c, err := specCatalog(srv.URL); err != nil || c != nil {
+		t.Errorf("refused: %v %v", c, err)
+	}
+
+	// without a token of CI the catalog is skipped, not a failure
+	t.Setenv("HAMMURAPI_TOKEN", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	t.Setenv("HAMMURAPI_ID_TOKEN", "")
+	if c, err := specCatalog(srv.URL); err != nil || c != nil {
+		t.Errorf("no token: %v %v", c, err)
 	}
 }

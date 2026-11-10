@@ -176,7 +176,7 @@ func TestCheckTemplate(t *testing.T) {
 	if v := CheckTemplate(Product, FileTemplate, renamed); len(v) != 0 {
 		t.Errorf("a renamed free section is not a violation: %+v", v)
 	}
-	arch := "# Arch: <name>\n\n**Depends on:** <keys>\n\n## Decisions\n\n| # | Decision | Reason |\n|---|---|---|\n\n## Changes to other features\n\n| Feature | Decision | What changed |\n|---|---|---|\n"
+	arch := "# Arch: <name>\n\n**Depends on:** <keys>\n\n## Affected services and contracts\n\n| Service | Role |\n|---|---|\n\n## C4 diagram\n\n```mermaid\nC4Container\n```\n\n## Decisions\n\n| # | Decision | Reason |\n|---|---|---|\n\n## Changes to other features\n\n| Feature | Decision | What changed |\n|---|---|---|\n"
 	if v := CheckTemplate(Arch, FileTemplate, arch); len(v) != 1 || v[0].Element != ElemDecisions {
 		t.Errorf("arch with #: %+v", v)
 	}
@@ -185,6 +185,15 @@ func TestCheckTemplate(t *testing.T) {
 	}
 	if v := CheckTemplate(Arch, FileFixTemplate, strings.Replace(arch, "| # |", "| A |", 1)); len(v) != 1 || v[0].Element != ElemParent {
 		t.Errorf("fix without parent: %+v", v)
+	}
+	// SVC-02: the column of the service removed from the template of arch
+	noKey := strings.Replace(strings.Replace(arch, "| # |", "| A |", 1), "| Service | Role |", "| Role | Service |", 1)
+	if v := CheckTemplate(Arch, FileTemplate, noKey); len(v) != 1 || v[0].Element != ElemServices {
+		t.Errorf("SVC-02 arch without the column of the service: %+v", v)
+	}
+	noC4 := strings.Replace(strings.Replace(arch, "| # |", "| A |", 1), "```mermaid\nC4Container\n```", "", 1)
+	if v := CheckTemplate(Arch, FileTemplate, noC4); len(v) != 1 || v[0].Element != ElemC4 {
+		t.Errorf("arch without the mermaid block: %+v", v)
 	}
 	if v := CheckTemplate(QA, FileTemplate, "# QA"); len(v) != 0 {
 		t.Errorf("qa has no elements: %+v", v)
@@ -195,10 +204,16 @@ func TestPromptAndDescribe(t *testing.T) {
 	if p := Prompt(Arch, RU); !strings.Contains(p, "«## Принятые решения»") || !strings.Contains(p, "**Опирается на:**") {
 		t.Errorf("prompt: %s", p)
 	}
+	if p := Prompt(Arch, EN); !strings.Contains(p, "«## C4 diagram»") || !strings.Contains(p, "«## Affected services and contracts»") {
+		t.Errorf("prompt: %s", p)
+	}
+	if p := Prompt(Tech, RU); !strings.Contains(p, "«## Изменения по сервисам»") || !strings.Contains(p, ".openapi.yaml") {
+		t.Errorf("tech prompt: %s", p)
+	}
 	if p := Prompt(Product, EN); !strings.Contains(p, "«## Changes to other features»") {
 		t.Errorf("prompt: %s", p)
 	}
-	if len(Describe(Arch, FileFixTemplate, RU)) != 2 || len(Describe(Arch, FileTemplate, RU)) != 3 || len(Describe(QA, FileTemplate, EN)) != 0 {
+	if len(Describe(Arch, FileFixTemplate, RU)) != 2 || len(Describe(Arch, FileTemplate, RU)) != 5 || len(Describe(QA, FileTemplate, EN)) != 0 {
 		t.Error("describe")
 	}
 }

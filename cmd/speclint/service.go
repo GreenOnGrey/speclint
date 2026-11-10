@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GreenOnGrey/speclint/contract"
-	"github.com/GreenOnGrey/speclint/starter"
+	"github.com/GreenOnGrey/speclint/v2/contract"
+	"github.com/GreenOnGrey/speclint/v2/starter"
 )
 
 // The checks of the mode service (FTR.HMR.SPEC-0002 R8, R9, R13, tech §2.1).
@@ -120,21 +120,45 @@ var retryWaits = []time.Duration{2 * time.Second, 4 * time.Second}
 
 const requestTimeout = 10 * time.Second
 
-// fetchCases asks Hammurapi for the features and test cases of the service; it retries a failed connection, a 5xx
-// and a 429, and fails at once on an answer about the token or the service.
+// fetchCases asks Hammurapi for the features and test cases of the service.
 func fetchCases(ctx context.Context, client *http.Client, base, service, token string) (*serviceCases, error) {
-	u, err := apiURL(base, "/api/v1/ci/services/"+url.PathEscape(service)+"/test-cases")
+	var got serviceCases
+	err := fetchJSON(ctx, client, base, "/api/v1/ci/services/"+url.PathEscape(service)+"/test-cases", token, &got,
+		&runError{"service-not-found", "Hammurapi has no such service in its catalog"})
 	if err != nil {
 		return nil, err
 	}
+	return &got, nil
+}
+
+// fetchCatalog asks Hammurapi for the keys of its catalog of services (FTR.HMR.SPEC-0004 tech §3.2).
+func fetchCatalog(ctx context.Context, client *http.Client, base, token string) ([]string, error) {
+	var got struct {
+		Services []string `json:"services"`
+	}
+	err := fetchJSON(ctx, client, base, "/api/v1/ci/services", token, &got,
+		&runError{"hammurapi-unreachable", "Hammurapi has no list of services for CI: it is older than the contract 2.0"})
+	if err != nil {
+		return nil, err
+	}
+	return got.Services, nil
+}
+
+// fetchJSON reads an answer of the API of Hammurapi into v; it retries a failed connection, a 5xx and a 429, and
+// fails at once on an answer about the token, or with notFound on a 404.
+func fetchJSON(ctx context.Context, client *http.Client, base, path, token string, v any, notFound error) error {
+	u, err := apiURL(base, path)
+	if err != nil {
+		return err
+	}
 	var last string
 	for attempt := 0; ; attempt++ {
-		got, retry, err := fetchOnce(ctx, client, u.String(), token)
+		retry, err := fetchOnce(ctx, client, u.String(), token, v, notFound)
 		if err == nil {
-			return got, nil
+			return nil
 		}
 		if !retry {
-			return nil, err
+			return err
 		}
 		last = err.Error()
 		if attempt >= len(retryWaits) {
@@ -142,38 +166,37 @@ func fetchCases(ctx context.Context, client *http.Client, base, service, token s
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case <-time.After(retryWaits[attempt]):
 		}
 	}
-	return nil, &runError{"hammurapi-unreachable", fmt.Sprintf("Hammurapi is unreachable at %s after %d attempts: %s", base, len(retryWaits)+1, last)}
+	return &runError{"hammurapi-unreachable", fmt.Sprintf("Hammurapi is unreachable at %s after %d attempts: %s", base, len(retryWaits)+1, last)}
 }
 
-func fetchOnce(ctx context.Context, client *http.Client, u, token string) (*serviceCases, bool, error) {
+func fetchOnce(ctx context.Context, client *http.Client, u, token string, v any, notFound error) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, false, err
+		return false, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "speclint/"+moduleVersion())
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, true, err
+		return true, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return nil, true, err
+		return true, err
 	}
 	if resp.StatusCode == http.StatusOK {
-		var got serviceCases
-		if err := json.Unmarshal(body, &got); err != nil {
-			return nil, false, &runError{"hammurapi-unreachable", "the answer of Hammurapi is not the list of test cases: " + err.Error()}
+		if err := json.Unmarshal(body, v); err != nil {
+			return false, &runError{"hammurapi-unreachable", "the answer of Hammurapi is not what speclint expects: " + err.Error()}
 		}
-		return &got, false, nil
+		return false, nil
 	}
 	var e struct {
 		Error struct {
@@ -189,19 +212,19 @@ func fetchOnce(ctx context.Context, client *http.Client, u, token string) (*serv
 	}
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized && code == "token_revoked":
-		return nil, false, &runError{"token-revoked", "the installation token is revoked: a global administrator issues a new one in the settings of Hammurapi"}
+		return false, &runError{"token-revoked", "the installation token is revoked: a global administrator issues a new one in the settings of Hammurapi"}
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, false, &runError{"token-invalid", "Hammurapi does not accept the token: " + orDefault(msg, "unknown token")}
+		return false, &runError{"token-invalid", "Hammurapi does not accept the token: " + orDefault(msg, "unknown token")}
 	case resp.StatusCode == http.StatusForbidden && code == "repo_not_in_catalog":
-		return nil, false, &runError{"repo-not-in-catalog", orDefault(msg, "the repository is not the repository of any service in Hammurapi")}
+		return false, &runError{"repo-not-in-catalog", orDefault(msg, "the repository is not the repository of any service in Hammurapi")}
 	case resp.StatusCode == http.StatusForbidden:
-		return nil, false, &runError{"token-scope", orDefault(msg, "the token is of another repository")}
+		return false, &runError{"token-scope", orDefault(msg, "the token is of another repository")}
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, false, &runError{"service-not-found", "Hammurapi has no such service in its catalog"}
+		return false, notFound
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
-		return nil, true, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return true, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return nil, false, &runError{"hammurapi-unreachable", fmt.Sprintf("Hammurapi answered HTTP %d %s", resp.StatusCode, code)}
+	return false, &runError{"hammurapi-unreachable", fmt.Sprintf("Hammurapi answered HTTP %d %s", resp.StatusCode, code)}
 }
 
 // compareVersions checks speclint against the contract of Hammurapi (R13): another major version fails the run,

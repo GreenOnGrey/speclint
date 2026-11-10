@@ -13,7 +13,17 @@ The document contract of Hammurapi and the linter of specification repositories
   written in one of them. `hammurapi-core` imports this package: the indexer and the linter of one
   version read a document the same way.
 - `starter/` — the starter rules templates in `ru` and `en`; a test keeps them within the contract.
-- `cmd/speclint/` — the CLI: `speclint spec` (default), `speclint migrate-arch`, `speclint version`.
+- `cmd/speclint/` — the CLI: `speclint spec` (default), `speclint service` (the tests of a service against
+  Hammurapi, FTR.HMR.SPEC-0002), `speclint migrate-arch`, `speclint version`; `-format text|github|gitlab`.
+- `starter/ci/` — the files of the check that Hammurapi proposes to repositories; `action.yml`,
+  `templates/speclint.gitlab-ci.yml`, `Dockerfile` and `.github/workflows/release.yml` deliver a version.
+
+## Releases
+
+A tag `v<contract.Version>` builds the binaries, the public image `ghcr.io/greenongrey/speclint:<version>`
+and signs both (cosign keyless). Before the tag: `contract.Version` and `SPECLINT_VERSION` of
+`templates/speclint.gitlab-ci.yml` name the version (the release checks both), and so do the examples of
+the README.
 
 ## Rules
 

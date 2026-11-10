@@ -1,0 +1,23 @@
+# Managed by Hammurapi (FTR.HMR.SPEC-0002): only the version line is updated.
+# The check of [[if eq .Mode "service"]]the tests of service [[.Service]] against its features in Hammurapi[[else]]the specifications against the document contract of Hammurapi[[end]].
+# SPECLINT_IMAGE may name a mirror of the image for a GitLab without access to ghcr.io.
+variables:
+  SPECLINT_VERSION: "[[.Version]]"
+  SPECLINT_IMAGE: "ghcr.io/greenongrey/speclint"
+  SPECLINT_MODE: "[[.Mode]]"
+[[- if eq .Mode "service"]]
+  HAMMURAPI_URL: "[[.Hammurapi]]"
+  HAMMURAPI_SERVICE: "[[.Service]]"
+  # HAMMURAPI_SERVICE_TOKEN: a masked CI/CD variable of the project
+[[- end]]
+
+speclint:
+  image: { name: "$SPECLINT_IMAGE:$SPECLINT_VERSION", entrypoint: [""] }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - speclint "$SPECLINT_MODE" -root . -baseline speclint-baseline.txt -errors-only -format gitlab[[if eq .Mode "service"]] -hammurapi "$HAMMURAPI_URL" -service "$HAMMURAPI_SERVICE"[[end]]
+  artifacts:
+    when: always
+    reports: { codequality: gl-code-quality-report.json }

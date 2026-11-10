@@ -1,0 +1,35 @@
+# The template of speclint for GitLab CI (FTR.HMR.SPEC-0002 R3). Include it,
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v1.1.0/templates/speclint.gitlab-ci.yml
+#
+# or copy it into the repository (a GitLab without access to the internet), and set the variables:
+#
+#   SPECLINT_MODE            spec (a repository of specifications) or service (a repository of a service)
+#   SPECLINT_VERSION         the version of speclint: the version of the contract of your Hammurapi
+#   SPECLINT_IMAGE           the image, or its mirror in a closed network
+#   HAMMURAPI_URL, HAMMURAPI_SERVICE   for service; HAMMURAPI_SERVICE_TOKEN as a masked CI/CD variable
+#
+# Errors go to the Code Quality widget of the merge request.
+variables:
+  SPECLINT_MODE: "spec"
+  SPECLINT_VERSION: "1.1.0"
+  SPECLINT_IMAGE: "ghcr.io/greenongrey/speclint"
+  SPECLINT_ROOT: "."
+  SPECLINT_BASELINE: "speclint-baseline.txt"
+  HAMMURAPI_URL: ""
+  HAMMURAPI_SERVICE: ""
+
+.speclint:
+  image: { name: "$SPECLINT_IMAGE:$SPECLINT_VERSION", entrypoint: [""] }
+  script:
+    - speclint "$SPECLINT_MODE" -root "$SPECLINT_ROOT" -baseline "$SPECLINT_BASELINE" -errors-only -format gitlab -hammurapi "$HAMMURAPI_URL" -service "$HAMMURAPI_SERVICE"
+  artifacts:
+    when: always
+    reports: { codequality: gl-code-quality-report.json }
+
+speclint:
+  extends: .speclint
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

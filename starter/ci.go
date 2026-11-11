@@ -26,7 +26,7 @@ var ciFiles embed.FS
 
 // CIParams fill a file of the check.
 type CIParams struct {
-	Version   string // the version of speclint, the version of the contract: 2.1.0
+	Version   string // the version of speclint, the version of the contract: 2.2.0
 	Mode      string // spec | service
 	Hammurapi string // the public address of the API of Hammurapi: for service, and for spec to check the keys of services against the catalog
 	Service   string // the key of the service in the catalog, for service

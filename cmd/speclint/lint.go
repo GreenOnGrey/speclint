@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,13 +39,15 @@ const (
 	checkReqNoCriteria = "req-no-criteria"
 	checkQAUnknownReq  = "qa-unknown-req"
 	checkQADuplicateID = "qa-duplicate-id"
-	checkRefFeature    = "ref-unknown-feature"
-	checkRefReq        = "ref-unknown-req"
-	checkParent        = "parent-unknown"
-	checkBacklink      = "changes-no-backlink"
-	checkNoteNoChange  = "note-without-change"
-	checkChangesLine   = "changes-line"
-	checkNotInCode     = "qa-not-in-code"
+	// FTR.HMR.SPEC-0005 R2: a key of the column «Сервисы» of qa outside the services of the feature
+	checkQAUnknownSvc = "qa-unknown-service"
+	checkRefFeature   = "ref-unknown-feature"
+	checkRefReq       = "ref-unknown-req"
+	checkParent       = "parent-unknown"
+	checkBacklink     = "changes-no-backlink"
+	checkNoteNoChange = "note-without-change"
+	checkChangesLine  = "changes-line"
+	checkNotInCode    = "qa-not-in-code"
 	// FTR.HMR.DEV-0003: decisions A<n> of arch, the changes of arch and the contract of the rules
 	checkDecUnnumbered = "decisions-unnumbered"
 	checkDecDuplicate  = "decision-duplicate"
@@ -311,6 +314,7 @@ func splitRow(s string) []string {
 type testCase struct {
 	id, level string
 	line      int
+	services  []string // the column «Сервисы» / «Services» (FTR.HMR.SPEC-0005 R1); empty — every service
 }
 
 // parseQA reads the tables of test cases and checks the requirements they name.
@@ -321,7 +325,8 @@ func parseQA(fs map[string]*feature, f *feature, report func(issue)) []testCase 
 	}
 	var out []testCase
 	seen := map[string]bool{}
-	idCol, reqCol, levelCol := -1, -1, -1
+	idCol, reqCol, levelCol, svcCol := -1, -1, -1, -1
+	known := featureServices(f)
 	for _, l := range d.lines {
 		t := strings.TrimSpace(l.text)
 		if !strings.HasPrefix(t, "|") {
@@ -330,7 +335,7 @@ func parseQA(fs map[string]*feature, f *feature, report func(issue)) []testCase 
 		}
 		cells := splitRow(t)
 		if idCol < 0 {
-			reqCol, levelCol = -1, -1
+			reqCol, levelCol, svcCol = -1, -1, -1
 			for i, c := range cells {
 				switch {
 				case c == "ID":
@@ -339,6 +344,8 @@ func parseQA(fs map[string]*feature, f *feature, report func(issue)) []testCase 
 					reqCol = i
 				case strings.HasPrefix(c, "Ур"):
 					levelCol = i
+				case strings.HasPrefix(c, "Сервис"), strings.HasPrefix(c, "Service"):
+					svcCol = i
 				}
 			}
 			continue
@@ -357,6 +364,15 @@ func parseQA(fs map[string]*feature, f *feature, report func(issue)) []testCase 
 		tc := testCase{id: id, line: l.n}
 		if levelCol >= 0 && levelCol < len(cells) {
 			tc.level = cells[levelCol]
+		}
+		if svcCol >= 0 && svcCol < len(cells) {
+			tc.services = serviceKeys(cells[svcCol])
+			for _, k := range tc.services {
+				if len(known) > 0 && !slices.Contains(known, k) {
+					report(issue{d.path, checkQAUnknownSvc, id + " " + k,
+						id + " names service " + k + ", which is not among the services of " + f.key + " (" + strings.Join(known, ", ") + ")", l.n})
+				}
+			}
 		}
 		out = append(out, tc)
 		if reqCol < 0 || reqCol >= len(cells) {
@@ -1066,4 +1082,38 @@ func specCatalog(base string) ([]string, error) {
 		return skip(err)
 	}
 	return catalog, nil
+}
+
+// featureServices are the services of a feature: the table of arch, or of tech without one (FTR.HMR.SPEC-0005 R2).
+// nil — no table, nothing to check the column «Сервисы» against.
+func featureServices(f *feature) []string {
+	var keys []string
+	if f.archDoc != nil && f.archDoc.HasServices {
+		for _, s := range f.archDoc.Services {
+			keys = append(keys, s.Key)
+		}
+		return keys
+	}
+	if d := f.docs["tech"]; d != nil {
+		if t := contract.Parse(d.raw, contract.Tech); t.HasServices {
+			for _, s := range t.Services {
+				keys = append(keys, s.Key)
+			}
+		}
+	}
+	return keys
+}
+
+var serviceKeyRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+// serviceKeys reads «`nabu-core`, `nabu-web`»; an empty cell, «—» or words are no keys.
+func serviceKeys(cell string) []string {
+	var out []string
+	for _, part := range strings.Split(cell, ",") {
+		k := strings.Trim(strings.TrimSpace(part), "`* ")
+		if serviceKeyRe.MatchString(k) && !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	return out
 }

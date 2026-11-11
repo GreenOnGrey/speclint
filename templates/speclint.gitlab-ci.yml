@@ -1,7 +1,7 @@
 # The template of speclint for GitLab CI (FTR.HMR.SPEC-0002 R3). Include it,
 #
 #   include:
-#     - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.0.0/templates/speclint.gitlab-ci.yml
+#     - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.1.0/templates/speclint.gitlab-ci.yml
 #
 # or copy it into the repository (a GitLab without access to the internet), and set the variables:
 #
@@ -16,7 +16,7 @@
 # Errors go to the Code Quality widget of the merge request.
 variables:
   SPECLINT_MODE: "spec"
-  SPECLINT_VERSION: "2.0.0"
+  SPECLINT_VERSION: "2.1.0"
   SPECLINT_IMAGE: "ghcr.io/greenongrey/speclint"
   SPECLINT_ROOT: "."
   SPECLINT_BASELINE: "speclint-baseline.txt"

@@ -46,6 +46,24 @@ func cases(t *testing.T) *serviceCases {
 	return &sc
 }
 
+// FTR.HMR.SPEC-0002 SVC-11 (R15): an ID of a required feature and of a feature that needs no tests is not
+// shared: the test counts without the key of the feature in its file.
+func TestSharedOnlyWithRequired(t *testing.T) {
+	var sc serviceCases
+	j := strings.Replace(strings.Replace(casesJSON,
+		`"features":[`, `"features":[{"key":"FTR.NAB.CMN-0003","phase":"indexed","required":false},`, 1),
+		`"cases":[`, `"cases":[{"id":"BOOK-01","feature":"FTR.NAB.CMN-0003","level":"U"},`, 1)
+	if err := json.Unmarshal([]byte(j), &sc); err != nil {
+		t.Fatal(err)
+	}
+	code := parseGrep("internal/e_test.go:4:// BOOK-01 of the return")
+	for _, i := range checkService(&sc, code) {
+		if i.subject == "FTR.FMS.CAR-0008 BOOK-01" {
+			t.Fatalf("BOOK-01 is not shared with a feature that needs no tests: %s", i.msg)
+		}
+	}
+}
+
 // FTR.HMR.SPEC-0002 qa: the checks of the mode service.
 func TestServiceChecks(t *testing.T) {
 	code := parseGrep(strings.Join([]string{

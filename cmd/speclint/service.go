@@ -335,14 +335,24 @@ func checkService(sc *serviceCases, code *repoHits) []issue {
 		}
 	}
 
-	// R8: a required automated case without its ID in the code; a shared ID counts in a file that names the feature
+	// R8: a required automated case without its ID in the code; a shared ID counts in a file that names the feature.
+	// R15: an ID is shared only between required features: a feature that needs no tests (in spec, indexed)
+	// does not make the case of a required one name its key.
+	reqOwners := map[string]int{} // ID → required features
+	for id, o := range owners {
+		for k := range o {
+			if required[k] {
+				reqOwners[id]++
+			}
+		}
+	}
 	seen := map[string]bool{}
 	for _, c := range sc.Cases {
 		if !required[c.Feature] || c.Level == "M" || seen[c.Feature+" "+c.ID] {
 			continue
 		}
 		seen[c.Feature+" "+c.ID] = true
-		shared := len(owners[c.ID]) > 1
+		shared := reqOwners[c.ID] > 1
 		switch {
 		case shared && qualified[c.Feature+" "+c.ID]:
 		case shared && found[c.ID]:

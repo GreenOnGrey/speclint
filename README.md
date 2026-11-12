@@ -15,11 +15,11 @@ documents are both read.
 ```yaml
 # a repository of specifications; with hammurapi-url (and id-token: write) the keys of services in arch
 # are checked against the catalog of Hammurapi
-- uses: GreenOnGrey/speclint@v2.1.0
+- uses: GreenOnGrey/speclint@v2.2.0
   with: { mode: spec, hammurapi-url: https://hammurapi.example }
 
 # a repository of a service: its tests against the test cases of its features in Hammurapi
-- uses: GreenOnGrey/speclint@v2.1.0
+- uses: GreenOnGrey/speclint@v2.2.0
   with:
     mode: service
     hammurapi-url: https://hammurapi.example
@@ -38,10 +38,10 @@ repository itself and keeps its version on the contract of Hammurapi.
 
 ```yaml
 include:
-  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.1.0/templates/speclint.gitlab-ci.yml
+  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.2.0/templates/speclint.gitlab-ci.yml
 variables:
   SPECLINT_MODE: service            # or spec
-  SPECLINT_VERSION: "2.1.0"
+  SPECLINT_VERSION: "2.2.0"
   HAMMURAPI_URL: https://hammurapi.example
   HAMMURAPI_SERVICE: booking        # the job presents its OIDC token (id_tokens), no secret
 ```
@@ -78,8 +78,8 @@ automated test case of a feature in code generation or later without its ID in t
 Verify a release:
 
 ```sh
-cosign verify ghcr.io/greenongrey/speclint:2.1.0 \
-  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v2.1.0 \
+cosign verify ghcr.io/greenongrey/speclint:2.2.0 \
+  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v2.2.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

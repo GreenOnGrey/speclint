@@ -6,9 +6,11 @@ U — unit, I — integration, E — end-to-end. The ID of a test case is in the
 
 ## Test cases
 
-| ID | Requirements | Scenario | Expected result | Lvl |
-|---|---|---|---|---|
-| `AREA-01` | R1 | <scenario> | <result> | I |
+«Services» are keys of the table of services of `arch`, comma-separated: the case is needed in the code of these services only. An empty cell — every service of the feature.
+
+| ID | Requirements | Services | Scenario | Expected result | Lvl |
+|---|---|---|---|---|---|
+| `AREA-01` | R1 | `<service>` | <scenario> | <result> | I |
 
 ## Decisions
 

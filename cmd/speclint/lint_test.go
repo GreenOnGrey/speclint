@@ -333,3 +333,24 @@ func TestServicesAndContracts(t *testing.T) {
 		t.Errorf("no token: %v %v", c, err)
 	}
 }
+
+// FTR.HMR.SPEC-0005 qa TCS-06: a key of the column «Сервисы» outside the table of services of arch, or of tech without arch.
+func TestQAServices(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, a+"product/spec.md", validProduct)
+	write(t, root, a+"qa/spec.md", "| ID | Требования | Сервисы | Сценарий | Ур. |\n|---|---|---|---|---|\n"+
+		"| S-01 | R1 | `booking`, `billing` | с | U |\n| S-02 | R1 |  | с | U |\n| S-03 | R1 | — | с | U |\n")
+	// without a table of services there is nothing to check against
+	if got := keys(t, root); got != "" {
+		t.Fatalf("without services: %s", got)
+	}
+	write(t, root, a+"tech/spec.md", "# Tech\n\n## Изменения по сервисам\n\n| Сервис | Репозиторий | Что меняется | Требования |\n|---|---|---|---|\n| `booking` | o/b | x | R1 |\n")
+	if got, want := keys(t, root), "qa-unknown-service S-01 billing"; got != want {
+		t.Errorf("tech: got %q, want %q", got, want)
+	}
+	// TCS-07: the English column reads the same way
+	write(t, root, a+"qa/spec.md", "| ID | Требования | Services | Сценарий | Ур. |\n|---|---|---|---|---|\n| S-01 | R1 | `booking` | с | U |\n")
+	if got := keys(t, root); got != "" {
+		t.Errorf("Services: %s", got)
+	}
+}

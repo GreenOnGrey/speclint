@@ -10,6 +10,95 @@ and the contract files next to it (`<service>.openapi.yaml`, `<service>.proto`).
 code, so a pull request is checked exactly the way Hammurapi will read it. Russian and English
 documents are both read.
 
+## What it checks
+
+A repository of specifications is a tree `specs/<domain>/<group>/<FTR.DOM.GRP-0001>/<area>/spec.md` with the
+areas `product`, `design`, `arch`, `tech` and `qa`. Every check below reports a name, a line and a message.
+An error fails the run unless the baseline lists it; a warning never fails it, and no flag turns a check off.
+
+### `spec` — a repository of specifications
+
+The requirements of product and the test cases of qa:
+
+| Check | What it reports |
+|---|---|
+| `req-duplicate` | a requirement `R<n>` defined more than once in product |
+| `req-no-criteria` | a requirement with no acceptance criterion — a list item that starts with «Дано» / «Given» |
+| `qa-duplicate-id` | a test case ID listed more than once in qa |
+| `qa-unknown-req` | a test case that names a requirement its feature does not define (a fix counts the requirements of its parent) |
+| `qa-unknown-service` | a key of the column «Сервисы» / «Services» that is not among the services of the feature (those of arch, or of tech without them); nothing to check when the feature names no services |
+| `changes-line` | the line «Меняет:», which the section «Изменения в других решениях» replaced |
+
+References between features, in the line «Опирается на», in text and in the table of changes:
+
+| Check | What it reports |
+|---|---|
+| `ref-unknown-feature` | a reference to a feature that does not exist, or a row of the section of changes that names one: an example belongs in the text, not in the table |
+| `ref-unknown-req` | a reference to `R<n>` that the target does not define, or a row of the section of changes that takes more than one requirement (one row per requirement) |
+| `parent-unknown` | `parent` in the front matter of a fix that names no feature |
+| `changes-no-backlink` | a row of the section of changes whose target does not point back: the changed requirement names no key of the changing feature, the changed feature no mention of it (a note «*Изменено в `FTR.…`*», or any mention of the key) |
+| `note-without-change` | a note «*Изменено в `FTR.…`*» whose source has no row of the section of changes about this requirement, or about the whole feature for a note in the header |
+
+A key of a domain with no specifications in this repository (`FTR.FMS.CAR-0005` of a template) is an example
+in text and is skipped; in the table of changes it is still an error, since Hammurapi applies every row.
+
+The decisions of arch:
+
+| Check | What it reports |
+|---|---|
+| `decisions-unnumbered` | a row of the table «Принятые решения» whose first cell is not a number `A<n>` |
+| `decision-duplicate` | a decision `A<n>` defined more than once |
+| `ref-unknown-decision` | a reference to `A<n>` that does not exist |
+| `changes-wrong-kind` | a row of product that changes a decision `A<n>`, or a row of arch that changes a requirement `R<n>`: product changes requirements, arch changes decisions |
+| `changes-no-backlink`, `note-without-change` | the same as for product, for the section of changes and the notes of arch |
+
+The services and the C4 diagram of arch; the services and the contract files of tech:
+
+| Check | What it reports |
+|---|---|
+| `arch-services-missing` | no table «Затрагиваемые сервисы и контракты» / «Affected services and contracts» whose first column is «Сервис» / «Service» |
+| `c4-missing` | no section «Схема C4» / «C4 diagram» with a mermaid block of the kind `C4Container` |
+| `c4-invalid` | a mermaid block that is not read: it does not start with `C4Container`, a statement is not C4, a boundary or a quote is not closed, an identifier is not letters, digits and `_`, an identifier is declared twice, a relation names an unknown element, an unknown function |
+| `c4-service-missing` | a service of the table that is not a container of the diagram; the identifier of a service is its key with `-` and `.` written as `_` (`booking-api` → `booking_api`), and an external container does not count |
+| `arch-service-unknown` | a key of the table that is not in the catalog of Hammurapi; the message suggests the nearest key. Reported with `-hammurapi` only, for an arch that names its services by keys, and skipped with a note when no token of CI makes the catalog available |
+| `tech-service-not-in-arch` | a service of tech that arch does not name |
+| `contract-file-service` | a file `tech/<key>.openapi.json`, `.openapi.yaml`, `.openapi.yml` or `tech/<key>.proto` whose key is not a service of the feature |
+| `contract-file-invalid` | a contract file that is not OpenAPI 3.x with top-level `paths`, or not proto3 with a service or a message, with balanced braces and closed strings and comments |
+
+An arch of a fix (with `parent`) has neither the table of services nor the diagram, so it is not checked for
+them; an arch of the contract 1.x, without the diagram, fails `c4-missing` (see «Library»).
+
+The rules templates of the repository:
+
+| Check | What it reports |
+|---|---|
+| `template-contract` | `rules/product/template.md` or `rules/arch/template.md` that lost an element of the contract: the line «Опирается на» / «Depends on», a requirement with criteria, the table of the section of changes, the decisions `A<n>`, the table of services, the C4 diagram; and any `rules/*/fix-template.md` without `parent` |
+
+The tests of a feature in code (`-code <repo>`, repeatable):
+
+| Check | What it reports |
+|---|---|
+| `qa-not-in-code` (warning) | an automated test case (a level other than `M`) whose ID is in no repository. An ID that is a test case of several features counts for a feature only in a file that names its key |
+
+### `service` — a repository of a service
+
+| Check | What it reports |
+|---|---|
+| `qa-not-in-code` (error) | an automated test case of a required feature of the service (a level other than `M`, in code generation or later) whose ID is in no tracked file |
+| `unknown-test-id` | an ID that looks like a test case of the service — its prefix is the prefix of its cases, `BOOKING` for `BOOKING-01` — and is not one, or is not a case of the feature its file names |
+| `version-minor` (warning) | speclint is older than the contract of Hammurapi |
+
+An ID that is a test case of several required features counts for a feature only in a file that names that
+feature's key; a feature that needs no tests does not share its IDs.
+
+### A run that cannot check
+
+Exit code `2`, no verdict: bad flags, no token (`token-invalid`), a revoked installation token
+(`token-revoked`), a token of another repository (`token-scope`), a repository that is not in the catalog of
+Hammurapi (`repo-not-in-catalog`), a service Hammurapi does not have (`service-not-found`), Hammurapi
+unreachable after three attempts or an answer that does not parse (`hammurapi-unreachable`), and another
+major version of the contract (`version-major`).
+
 ## GitHub Actions
 
 ```yaml

@@ -18,6 +18,22 @@ The document contract of Hammurapi and the linter of specification repositories
 - `starter/ci/` — the files of the check that Hammurapi proposes to repositories; `action.yml`,
   `templates/speclint.gitlab-ci.yml`, `Dockerfile` and `.github/workflows/release.yml` deliver a version.
 
+## README
+
+`README.md` is the public statement of what the linter reports: the section «What it checks» lists every check
+of the mode `spec` and of the mode `service` with its name, its severity and the condition that raises it, and
+«A run that cannot check» lists the failures of exit code 2. Keep it true in the same change that touches a
+check:
+
+- a check added, renamed or removed — a constant of `cmd/speclint/lint.go` or `cmd/speclint/service.go`, a
+  `contract.Check*` constant or an element of `contract.Violation` — is a row added, renamed or removed there;
+- a check that changes severity (error or warning, `warnings` in `lint.go`), that starts or stops failing a run,
+  or that gains a condition (a flag, a token, a skip) is a row edited;
+- a new flag, mode, command or output format is its paragraph and its example in the same section.
+
+Never leave a stale row: a reader trusts the README more than the code. The version in the examples comes from
+the Releases section below.
+
 ## Releases
 
 A tag `v<contract.Version>` builds the binaries, the public image `ghcr.io/greenongrey/speclint:<version>`

@@ -155,25 +155,72 @@ func TestFetchCases(t *testing.T) {
 	}))
 	defer srv.Close()
 	ctx := context.Background()
-	if sc, err := fetchCases(ctx, srv.Client(), srv.URL+"/", "booking", "good"); err != nil || len(sc.Cases) != 7 {
+	if sc, err := fetchCases(ctx, srv.Client(), srv.URL+"/", "booking", "good", "", ""); err != nil || len(sc.Cases) != 7 {
 		t.Fatalf("good: %v", err)
 	}
 	var re *runError
-	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", "old"); !errors.As(err, &re) || re.check != "token-revoked" {
+	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", "old", "", ""); !errors.As(err, &re) || re.check != "token-revoked" {
 		t.Fatalf("old: %v", err)
 	}
-	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "pricing", "good"); !errors.As(err, &re) || re.check != "service-not-found" {
+	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "pricing", "good", "", ""); !errors.As(err, &re) || re.check != "service-not-found" {
 		t.Fatalf("pricing: %v", err)
 	}
-	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", ""); !errors.As(err, &re) || re.check != "token-invalid" {
+	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", "", "", ""); !errors.As(err, &re) || re.check != "token-invalid" {
 		t.Fatalf("empty: %v", err)
 	}
 	calls.Store(0)
-	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", "busy"); !errors.As(err, &re) || re.check != "hammurapi-unreachable" || !strings.Contains(err.Error(), srv.URL) {
+	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", "busy", "", ""); !errors.As(err, &re) || re.check != "hammurapi-unreachable" || !strings.Contains(err.Error(), srv.URL) {
 		t.Fatalf("busy: %v", err)
 	}
 	if calls.Load() != 3 {
 		t.Fatalf("three attempts, got %d", calls.Load())
+	}
+}
+
+// FTR.HMR.SPEC-0002 R8, SVC-17: the head of the pull request goes to Hammurapi, so the feature whose own PR
+// is under check keeps its test cases required.
+func TestFetchCasesHead(t *testing.T) {
+	var head, sha string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		head, sha = r.URL.Query().Get("head"), r.URL.Query().Get("sha")
+		_, _ = w.Write([]byte(casesJSON))
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", "good", "feature/x", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if head != "feature/x" || sha != "abc123" {
+		t.Fatalf("the head of the pull request: %q %q", head, sha)
+	}
+	if _, err := fetchCases(ctx, srv.Client(), srv.URL, "booking", "good", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if head != "" || sha != "" {
+		t.Fatalf("no pull request, no query: %q %q", head, sha)
+	}
+}
+
+// headOf reads the variables of GitHub Actions and GitLab CI; outside a pull request it is empty.
+func TestHeadOf(t *testing.T) {
+	env := func(m map[string]string) func(string) string {
+		return func(k string) string { return m[k] }
+	}
+	for _, tc := range []struct {
+		name      string
+		env       map[string]string
+		head, sha string
+	}{
+		{"github", map[string]string{"GITHUB_HEAD_REF": "feature/x", "PR_HEAD_SHA": "abc"}, "feature/x", "abc"},
+		{"github push", map[string]string{"PR_HEAD_SHA": "abc"}, "", "abc"},
+		{"gitlab merge request", map[string]string{"CI_MERGE_REQUEST_SOURCE_BRANCH_NAME": "feature/y",
+			"CI_PIPELINE_SOURCE": "merge_request_event", "CI_COMMIT_SHA": "def"}, "feature/y", "def"},
+		{"gitlab branch", map[string]string{"CI_PIPELINE_SOURCE": "push", "CI_COMMIT_SHA": "def"}, "", ""},
+	} {
+		head, sha := headOf(env(tc.env))
+		if head != tc.head || sha != tc.sha {
+			t.Errorf("%s: %q %q, want %q %q", tc.name, head, sha, tc.head, tc.sha)
+		}
 	}
 }
 

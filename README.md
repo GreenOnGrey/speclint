@@ -84,7 +84,7 @@ The tests of a feature in code (`-code <repo>`, repeatable):
 
 | Check | What it reports |
 |---|---|
-| `qa-not-in-code` (error) | an automated test case of a required feature of the service (a level other than `M`, in code generation or later) whose ID is in no tracked file |
+| `qa-not-in-code` (error) | an automated test case (a level other than `M`) of a required feature of the service whose ID is in no tracked file. A feature is required when its service PR is merged or it is released; in the check of the feature's own pull request it is required too |
 | `unknown-test-id` | an ID that looks like a test case of the service — its prefix is the prefix of its cases, `BOOKING` for `BOOKING-01` — and is not one, or is not a case of the feature its file names |
 | `version-minor` (warning) | speclint is older than the contract of Hammurapi |
 
@@ -104,11 +104,11 @@ major version of the contract (`version-major`).
 ```yaml
 # a repository of specifications; with hammurapi-url (and id-token: write) the keys of services in arch
 # are checked against the catalog of Hammurapi
-- uses: GreenOnGrey/speclint@v2.2.0
+- uses: GreenOnGrey/speclint@v2.3.0
   with: { mode: spec, hammurapi-url: https://hammurapi.example }
 
 # a repository of a service: its tests against the test cases of its features in Hammurapi
-- uses: GreenOnGrey/speclint@v2.2.0
+- uses: GreenOnGrey/speclint@v2.3.0
   with:
     mode: service
     hammurapi-url: https://hammurapi.example
@@ -127,10 +127,10 @@ repository itself and keeps its version on the contract of Hammurapi.
 
 ```yaml
 include:
-  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.2.0/templates/speclint.gitlab-ci.yml
+  - remote: https://raw.githubusercontent.com/GreenOnGrey/speclint/v2.3.0/templates/speclint.gitlab-ci.yml
 variables:
   SPECLINT_MODE: service            # or spec
-  SPECLINT_VERSION: "2.2.0"
+  SPECLINT_VERSION: "2.3.0"
   HAMMURAPI_URL: https://hammurapi.example
   HAMMURAPI_SERVICE: booking        # the job presents its OIDC token (id_tokens), no secret
 ```
@@ -160,15 +160,19 @@ speclint version
   (flags, network, token, version).
 
 The mode `service` asks Hammurapi for the test cases of the features of the service and fails on an
-automated test case of a feature in code generation or later without its ID in the code
-(`qa-not-in-code`), and on an ID that looks like a test case of the service and is not one
-(`unknown-test-id`). Its major version must match the contract of Hammurapi.
+automated test case of a required feature without its ID in the code (`qa-not-in-code`), and on an ID
+that looks like a test case of the service and is not one (`unknown-test-id`). A feature is required
+when its service PR is merged or the feature is released; while its PR is open, the feature is required
+only in the check of that PR — the action passes `GITHUB_HEAD_REF` and the head commit of the pull
+request, and a GitLab job its source branch and `CI_COMMIT_SHA`. Nothing is merged to the default
+branch during development (`FTR.HMR.CMN-0002` §4), so a feature in code generation or validation does
+not make an unrelated pull request red. Its major version must match the contract of Hammurapi.
 
 Verify a release:
 
 ```sh
-cosign verify ghcr.io/greenongrey/speclint:2.2.0 \
-  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v2.2.0 \
+cosign verify ghcr.io/greenongrey/speclint:2.3.0 \
+  --certificate-identity https://github.com/GreenOnGrey/speclint/.github/workflows/release.yml@refs/tags/v2.3.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

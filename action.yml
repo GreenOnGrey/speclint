@@ -40,6 +40,9 @@ runs:
         IN_URL: ${{ inputs.hammurapi-url }}
         IN_SERVICE: ${{ inputs.service }}
         IN_QUIET: ${{ inputs.errors-only }}
+        # The head of the pull request: the feature whose own PR is under check keeps its test cases required
+        # (FTR.HMR.SPEC-0002 R8). Empty on a push, and on any event that is not a pull request.
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
         set -euo pipefail
         # The image has the version of the tag of the action: the version is pinned in one place. Pinned by a
@@ -61,4 +64,6 @@ runs:
           -v "$GITHUB_WORKSPACE:/work" -w /work \
           -v "$summary_dir:$summary_dir" -e GITHUB_STEP_SUMMARY -e GITHUB_ACTIONS \
           -e HAMMURAPI_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+          -e GITHUB_HEAD_REF -e PR_HEAD_SHA -e CI_MERGE_REQUEST_SOURCE_BRANCH_NAME \
+          -e CI_MERGE_REQUEST_SOURCE_BRANCH_SHA -e CI_PIPELINE_SOURCE -e CI_COMMIT_SHA \
           "$image" "${args[@]}"

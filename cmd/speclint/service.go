@@ -120,10 +120,42 @@ var retryWaits = []time.Duration{2 * time.Second, 4 * time.Second}
 
 const requestTimeout = 10 * time.Second
 
-// fetchCases asks Hammurapi for the features and test cases of the service.
-func fetchCases(ctx context.Context, client *http.Client, base, service, token string) (*serviceCases, error) {
+// headOf is the head of the pull request under check: its branch and its commit, as the CI names them
+// (FTR.HMR.SPEC-0002 R8). Empty outside a pull request; Hammurapi then requires only merged and released features.
+func headOf(env func(string) string) (head, sha string) {
+	head = firstNonEmpty(env("GITHUB_HEAD_REF"), env("CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"))
+	sha = firstNonEmpty(env("PR_HEAD_SHA"), env("CI_MERGE_REQUEST_SOURCE_BRANCH_SHA"))
+	if sha == "" && env("CI_PIPELINE_SOURCE") == "merge_request_event" {
+		sha = env("CI_COMMIT_SHA") // a detached pipeline of a merge request: the commit of its source branch
+	}
+	return head, sha
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// fetchCases asks Hammurapi for the features and test cases of the service. The head of the pull request, when
+// there is one, marks the features whose own PR is under check (R8).
+func fetchCases(ctx context.Context, client *http.Client, base, service, token, head, sha string) (*serviceCases, error) {
 	var got serviceCases
-	err := fetchJSON(ctx, client, base, "/api/v1/ci/services/"+url.PathEscape(service)+"/test-cases", token, &got,
+	path := "/api/v1/ci/services/" + url.PathEscape(service) + "/test-cases"
+	q := url.Values{}
+	if head != "" {
+		q.Set("head", head)
+	}
+	if sha != "" {
+		q.Set("sha", sha)
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	err := fetchJSON(ctx, client, base, path, token, &got,
 		&runError{"service-not-found", "Hammurapi has no such service in its catalog"})
 	if err != nil {
 		return nil, err
@@ -457,7 +489,8 @@ func runService(args []string) {
 	if err != nil {
 		fail(err)
 	}
-	sc, err := fetchCases(ctx, client, *base, *service, token)
+	head, sha := headOf(os.Getenv)
+	sc, err := fetchCases(ctx, client, *base, *service, token, head, sha)
 	if err != nil {
 		fail(err)
 	}
